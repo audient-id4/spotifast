@@ -1964,7 +1964,11 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
             // Fork: genre and mood chips, as on Liked Songs. A chosen chip
             // needs every song, so the rest of the list keeps loading.
             let tags = tag_filter(app, ui, id, items, items_revision);
-            if tags.active && page.items.can_load_more() && !page.items.loading {
+            if tags.active
+                && page.items.can_load_more()
+                && !page.items.loading
+                && page.items.error.is_none()
+            {
                 app.actions
                     .push(Action::LoadMore(Page::Playlist(id.to_string())));
             }
@@ -2599,7 +2603,13 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     let sort = app.table_sorts.get(&Page::LikedSongs).copied();
     // Fork: genre and mood chips. A chosen chip narrows the rows before
     // the view is made, so Play plays only the songs it shows.
-    if app.network_reachable && app.library.liked.can_load_more() && !app.library.liked.loading {
+    // Fork: chips count every song, so the rest loads too. A page that
+    // failed stops this: retrying it every frame used up Spotify's quota.
+    if app.network_reachable
+        && app.library.liked.can_load_more()
+        && !app.library.liked.loading
+        && app.library.liked.error.is_none()
+    {
         app.actions.push(Action::LoadMore(Page::LikedSongs));
     }
     let duplicates = liked_duplicates(ui, &items, revision);
