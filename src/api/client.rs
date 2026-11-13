@@ -1094,14 +1094,27 @@ impl ApiClient {
             if let Some(position) = position {
                 body["position"] = json!(position + (index * 100) as u32);
             }
-            let value = self
-                .write(
-                    Method::POST,
-                    &format!("/playlists/{id}/items"),
-                    &[],
-                    Some(&body),
-                )
-                .await?;
+            // Fork: Spotify sometimes answers a server error when songs go
+            // into a playlist made a moment ago; the same request then works.
+            let mut tries = 0;
+            let value = loop {
+                tries += 1;
+                match self
+                    .write(
+                        Method::POST,
+                        &format!("/playlists/{id}/items"),
+                        &[],
+                        Some(&body),
+                    )
+                    .await
+                {
+                    Err(ApiError::Status { status, .. }) if status >= 500 && tries < 3 => {
+                        log::warn!("adding to playlist failed with HTTP {status}; retrying");
+                        tokio::time::sleep(Duration::from_secs(tries)).await;
+                    }
+                    result => break result?,
+                }
+            };
             snapshot = Self::snapshot(value).or(snapshot);
         }
         Ok(snapshot)

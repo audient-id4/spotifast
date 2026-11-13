@@ -2612,13 +2612,62 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
     {
         app.actions.push(Action::LoadMore(Page::LikedSongs));
     }
+    // Fork: an artist's You Liked card narrows the list to their songs.
+    let (items, revision) = match app.liked_tags.artist.clone() {
+        Some((artist, _)) => {
+            let key = revision.wrapping_mul(131) ^ {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                artist.hash(&mut hasher);
+                hasher.finish()
+            } | 1 << 61;
+            let cache_id = egui::Id::new("liked-artist-rows");
+            let rows = match ui.data(|data| data.get_temp::<(u64, Arc<Vec<TableItem>>)>(cache_id)) {
+                Some((cached, rows)) if cached == key => rows,
+                _ => {
+                    let rows: Arc<Vec<TableItem>> = Arc::new(
+                        items
+                            .iter()
+                            .filter(|(item, _, _)| match item {
+                                PlayableItem::Track(track) => track
+                                    .artists
+                                    .iter()
+                                    .any(|a| a.id.as_deref() == Some(artist.as_str())),
+                                _ => false,
+                            })
+                            .cloned()
+                            .collect(),
+                    );
+                    ui.ctx()
+                        .data_mut(|data| data.insert_temp(cache_id, (key, Arc::clone(&rows))));
+                    rows
+                }
+            };
+            (rows, key)
+        }
+        None => (items, revision),
+    };
     let duplicates = liked_duplicates(ui, &items, revision);
-    if duplicates.is_empty() {
-        app.liked_tags.duplicates = false;
+    if !app.liked_tags.duplicates {
+        app.liked_tags.duplicates_shown = None;
     }
     let tags = if app.liked_tags.duplicates {
+        // The songs found when the view opened stay, in the order found,
+        // until it closes: removing one copy keeps the other in sight.
+        let shown = app.liked_tags.duplicates_shown.get_or_insert_with(|| {
+            duplicates
+                .iter()
+                .map(|&i| items[i].0.uri().to_string())
+                .collect()
+        });
+        let by_uri: HashMap<&str, &TableItem> =
+            items.iter().map(|row| (row.0.uri(), row)).collect();
+        let rows: Vec<TableItem> = shown
+            .iter()
+            .filter_map(|uri| by_uri.get(uri.as_str()).map(|row| (*row).clone()))
+            .collect();
         TagFilter {
-            items: Arc::new(duplicates.iter().map(|&i| items[i].clone()).collect()),
+            items: Arc::new(rows),
             revision: revision.wrapping_mul(31) | 3 << 62,
             active: true,
             chips: Vec::new(),
@@ -2658,6 +2707,14 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         actions_row(app, ui, actions, Some(&mut filter));
     }
     ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
+    if let Some((_, name)) = app.liked_tags.artist.clone() {
+        ui.add_space(4.0);
+        let (_, dismissed) = theme::soft_button_dismiss(ui, &app.palette, Icon::Music, &name);
+        if dismissed {
+            app.liked_tags.artist = None;
+            ui.ctx().request_repaint();
+        }
+    }
     tag_chip_row(app, ui, "liked", &tags, Some(duplicates.len()));
     let uris: Arc<[String]> = items
         .iter()
@@ -2834,7 +2891,7 @@ pub(crate) fn tag_chip_row(
     filter: &TagFilter,
     duplicates: Option<usize>,
 ) {
-    let duplicates = duplicates.filter(|count| *count > 0);
+    let duplicates = duplicates.filter(|count| *count > 0 || app.liked_tags.duplicates);
     if filter.chips.is_empty() && duplicates.is_none() {
         return;
     }

@@ -112,6 +112,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 }
             }
             ui.add_space(20.0);
+            you_liked(app, ui, artist);
 
             if let Some(upcoming) = app.artist_prereleases.get(&artist.uri).cloned()
                 && upcoming.is_upcoming(jiff::Timestamp::now().as_second())
@@ -604,4 +605,69 @@ mod tests {
         );
         assert_eq!(texts(None), ["1,200 followers", "indie"]);
     }
+}
+
+/// Fork: the liked songs with this artist on them, as Spotify's artist page
+/// shows under You Liked. A click opens Liked Songs with only those songs.
+fn you_liked(app: &mut App, ui: &mut egui::Ui, artist: &crate::api::models::Artist) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let count = app
+        .library
+        .liked
+        .items
+        .iter()
+        .filter(|saved| {
+            saved
+                .track
+                .artists
+                .iter()
+                .any(|a| a.id.as_deref() == Some(artist.id.as_str()))
+        })
+        .count();
+    if count == 0 {
+        return;
+    }
+    theme::section_title(ui, &palette, &gettext(locale, "You Liked"));
+    ui.add_space(8.0);
+    let size = 96.0;
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().min(420.0), size + 8.0),
+        egui::Sense::click(),
+    );
+    if response.hovered() {
+        ui.painter().rect_filled(rect, 8.0, palette.surface_hover);
+    }
+    let art = egui::Rect::from_min_size(rect.min + egui::vec2(4.0, 4.0), egui::Vec2::splat(size));
+    let url = crate::api::models::pick_image(&artist.images, 160);
+    widgets::paint_cover(ui, &palette, url, art, size / 2.0, Icon::Music, None);
+    // The green heart on the picture's lower right, as Spotify draws it.
+    let badge = art.right_bottom() - egui::vec2(14.0, 14.0);
+    ui.painter().circle_filled(badge, 12.0, palette.window);
+    let heart = egui::Rect::from_center_size(badge, egui::Vec2::splat(18.0));
+    theme::paint_icon(ui, Icon::HeartFilled, heart, 14.0, palette.accent);
+    let text_left = art.right() + 16.0;
+    let songs = crate::i18n::ngettext(locale, "{count} song", "{count} songs", count as u32)
+        .replace("{count}", &crate::util::format_count(count as u64));
+    ui.painter().text(
+        egui::pos2(text_left, rect.center().y - 10.0),
+        egui::Align2::LEFT_CENTER,
+        songs,
+        theme::bold(15.0),
+        palette.text,
+    );
+    ui.painter().text(
+        egui::pos2(text_left, rect.center().y + 12.0),
+        egui::Align2::LEFT_CENTER,
+        format!("By {}", artist.name),
+        theme::regular(13.0),
+        palette.secondary,
+    );
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.clicked() {
+        app.liked_tags.artist = Some((artist.id.clone(), artist.name.clone()));
+        app.liked_tags.duplicates = false;
+        app.actions.push(Action::Open(Page::LikedSongs));
+    }
+    ui.add_space(28.0);
 }

@@ -426,6 +426,12 @@ pub struct State {
     pub chips: HashMap<String, ((u64, u64), Arc<[Chip]>)>,
     /// Whether Liked Songs shows only the songs liked more than once.
     pub duplicates: bool,
+    /// The duplicates found when that view opened: a song whose copy was
+    /// removed stays in sight instead of leaving with it.
+    pub duplicates_shown: Option<Vec<String>>,
+    /// Liked Songs narrowed to one artist's songs, from the artist page's
+    /// You Liked card: the artist's id and name.
+    pub artist: Option<(String, String)>,
 }
 
 impl State {
