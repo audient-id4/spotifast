@@ -847,6 +847,8 @@ pub struct App {
     artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
     /// Upcoming releases read with artist play counts, kept only for this account.
     pub artist_prereleases: HashMap<String, crate::prerelease::UpcomingRelease>,
+    /// Fork: artists' header pictures and verified marks, by artist URI.
+    pub artist_visuals: HashMap<String, crate::session_reads::ArtistVisuals>,
     play_count_generation: u64,
     /// User ids resolved to avatar picture urls, asked for alongside the
     /// names; `None` while unknown or when Spotify gives no picture.
@@ -1496,6 +1498,7 @@ impl App {
             liked_tags: Default::default(),
             stats: Loadable::NotLoaded,
             artist_prereleases: HashMap::new(),
+            artist_visuals: HashMap::new(),
             artist_metadata_reads: HashMap::new(),
             play_count_generation: 0,
             user_names_revision: 0,
@@ -3788,6 +3791,7 @@ impl App {
         self.prerelease_request = None;
         self.artist_pages.clear();
         self.artist_prereleases.clear();
+        self.artist_visuals.clear();
         self.artist_metadata_reads.clear();
         self.play_counts.clear();
         self.play_count_reads.clear();
@@ -7963,6 +7967,9 @@ impl App {
                     has_counts: songs,
                 },
             );
+            if let Some(visuals) = &data.visuals {
+                self.artist_visuals.insert(uri.clone(), visuals.clone());
+            }
             if let Some(upcoming) = &data.upcoming {
                 self.artist_prereleases
                     .insert(uri.clone(), upcoming.clone());

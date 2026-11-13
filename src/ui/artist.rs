@@ -448,6 +448,14 @@ fn upcoming_release(
 fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Option<&Artist>) {
     let locale = app.locale;
     let byline = artist_byline(locale, artist, app.play_counts.get(&artist.uri).copied());
+    // Fork: Spotify's banner when the artist has a header picture.
+    if let Some(visuals) = app.artist_visuals.get(&artist.uri).cloned()
+        && let Some(header) = visuals.header.as_deref()
+    {
+        let listeners = byline.first().map(|(text, _)| text.clone());
+        banner(app, ui, artist, header, visuals.verified, listeners.as_deref());
+        return;
+    }
     let images = hero_images(
         &artist.images,
         preview.map(|artist| artist.images.as_slice()),
@@ -521,6 +529,129 @@ fn artist_byline(
     byline
 }
 
+/// Fork: the wide header picture with the name over it, as Spotify's artist
+/// page has: a dark fade at the foot for the words, the verified mark, the
+/// name as large as the width allows and the monthly listeners.
+fn banner(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    artist: &Artist,
+    header: &str,
+    verified: bool,
+    listeners: Option<&str>,
+) {
+    let palette = app.palette;
+    let width = ui.available_width();
+    let height = (width * 0.42).clamp(260.0, 420.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    widgets::paint_cover(ui, &palette, Some(header), rect, 8.0, Icon::Music, None);
+    // The fade: clear at the top, dark under the words.
+    let fade_top = rect.top() + height * 0.35;
+    let mut mesh = egui::Mesh::default();
+    let dark = egui::Color32::from_black_alpha(190);
+    let clear = egui::Color32::TRANSPARENT;
+    mesh.colored_vertex(egui::pos2(rect.left(), fade_top), clear);
+    mesh.colored_vertex(egui::pos2(rect.right(), fade_top), clear);
+    mesh.colored_vertex(rect.right_bottom(), dark);
+    mesh.colored_vertex(rect.left_bottom(), dark);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(egui::Shape::mesh(mesh));
+
+    let left = rect.left() + 32.0;
+    let mut y = rect.bottom() - 24.0;
+    if let Some(listeners) = listeners {
+        ui.painter().text(
+            egui::pos2(left, y),
+            egui::Align2::LEFT_BOTTOM,
+            listeners,
+            theme::regular(15.0),
+            egui::Color32::WHITE,
+        );
+        y -= 30.0;
+    }
+    // The name shrinks until it fits the banner, as Spotify's does.
+    let room = width - 64.0;
+    let mut size = 96.0;
+    let galley = loop {
+        let galley = ui.painter().layout_no_wrap(
+            artist.name.clone(),
+            theme::bold(size),
+            egui::Color32::WHITE,
+        );
+        if galley.size().x <= room || size <= 36.0 {
+            break galley;
+        }
+        size -= 4.0;
+    };
+    let name_top = y - galley.size().y;
+    ui.painter()
+        .galley(egui::pos2(left, name_top), galley, egui::Color32::WHITE);
+    if verified {
+        let badge_y = name_top - 4.0;
+        let badge = egui::Rect::from_min_size(egui::pos2(left, badge_y - 22.0), egui::vec2(22.0, 22.0));
+        ui.painter()
+            .circle_filled(badge.center(), 11.0, egui::Color32::from_rgb(77, 145, 255));
+        theme::paint_icon(ui, Icon::Check, badge, 13.0, egui::Color32::WHITE);
+        ui.painter().text(
+            egui::pos2(badge.right() + 8.0, badge.center().y),
+            egui::Align2::LEFT_CENTER,
+            gettext(app.locale, "Verified by Spotify"),
+            theme::medium(14.0),
+            egui::Color32::WHITE,
+        );
+    }
+    ui.add_space(20.0);
+    // Past the banner, the page keeps a bar with the name and Play.
+    let gone = rect.bottom() < ui.clip_rect().top() + 72.0;
+    if gone {
+        sticky_bar(app, ui, artist);
+    }
+}
+
+/// Fork: the bar Spotify keeps at the top of an artist page scrolled past its
+/// banner: the Play button and the name.
+fn sticky_bar(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
+    let palette = app.palette;
+    let clip = ui.clip_rect();
+    let bar = egui::Rect::from_min_size(clip.min, egui::vec2(clip.width(), 64.0));
+    egui::Area::new(egui::Id::new(("artist-sticky", &artist.uri)))
+        .order(egui::Order::Foreground)
+        .fixed_pos(bar.min)
+        .show(ui.ctx(), |ui| {
+            let (rect, _) = ui.allocate_exact_size(bar.size(), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 0.0, palette.panel);
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(rect.shrink2(egui::vec2(24.0, 8.0)))
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            child.spacing_mut().item_spacing.x = 16.0;
+            if theme::circle_button(
+                &mut child,
+                Icon::PlayFilled,
+                44.0,
+                palette.accent,
+                palette.accent_hover,
+                palette.on_accent,
+                &gettext(app.locale, "Play"),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::PlayContext {
+                    uri: artist.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                });
+            }
+            child.label(
+                egui::RichText::new(&artist.name)
+                    .font(theme::bold(24.0))
+                    .color(palette.text),
+            );
+        });
+}
+
 fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
     let palette = app.palette;
     let locale = app.locale;
@@ -551,6 +682,20 @@ fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
                 offset_uri: None,
                 offset_index: None,
             });
+        }
+        // Fork: shuffle beside Play, as Spotify's artist page has it.
+        let shuffle = app.playing_context_shuffle();
+        if theme::icon_button(
+            ui,
+            Icon::Shuffle,
+            28.0,
+            if shuffle { palette.accent } else { palette.secondary },
+            if shuffle { palette.accent_hover } else { palette.text },
+            &gettext(locale, "Shuffle"),
+        )
+        .clicked()
+        {
+            app.actions.push(Action::ToggleShuffle);
         }
         if theme::pill_button(
             ui,

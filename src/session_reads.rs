@@ -388,6 +388,36 @@ pub struct PageMetadata {
     /// under the artist's own URI.
     pub play_counts: HashMap<String, u64>,
     pub upcoming: Option<crate::prerelease::UpcomingRelease>,
+    /// Fork: an artist's wide header picture and verified mark.
+    pub visuals: Option<ArtistVisuals>,
+}
+
+/// Fork: what Spotify's artist page draws its banner from.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ArtistVisuals {
+    pub header: Option<String>,
+    pub verified: bool,
+}
+
+/// Fork: the header picture and verified mark in a `queryArtistOverview`
+/// answer.
+fn artist_visuals(body: &serde_json::Value) -> ArtistVisuals {
+    let header = body
+        .pointer("/data/artistUnion/visuals/headerImage/sources")
+        .and_then(|sources| sources.as_array())
+        .and_then(|sources| {
+            sources
+                .iter()
+                .max_by_key(|source| source.get("width").and_then(|w| w.as_u64()).unwrap_or(0))
+        })
+        .and_then(|source| source.get("url"))
+        .and_then(|url| url.as_str())
+        .map(str::to_owned);
+    let verified = body
+        .pointer("/data/artistUnion/profile/verified")
+        .and_then(|verified| verified.as_bool())
+        .unwrap_or(false);
+    ArtistVisuals { header, verified }
 }
 
 /// Read song play counts and, for artists, monthly listeners and the
@@ -402,6 +432,7 @@ pub async fn page_metadata(
     let client_token = session.spclient().client_token().await?;
     let mut counts = HashMap::new();
     let mut upcoming = None;
+    let mut visuals = None;
     match crate::util::uri_kind(uri) {
         Some("album") => {
             let mut offset = 0;
@@ -460,12 +491,14 @@ pub async fn page_metadata(
             if let Some(listeners) = monthly_listeners(&body) {
                 counts.insert(uri.to_string(), listeners);
             }
+            visuals = Some(artist_visuals(&body));
         }
         _ => anyhow::bail!("Spotify counts plays only for album and artist songs"),
     }
     Ok(PageMetadata {
         play_counts: counts,
         upcoming,
+        visuals,
     })
 }
 
