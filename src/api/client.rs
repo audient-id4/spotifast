@@ -24,10 +24,12 @@ const MAX_IN_FLIGHT: usize = 6;
 const MAX_BACKGROUND_IN_FLIGHT: usize = 4;
 const RATE_LIMIT_RETRIES: u32 = 3;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
-/// Fork: at most this many Web API requests in any `BUDGET_WINDOW`. A
-/// Development Mode app has a small quota; a loop that asks again every frame
-/// used it up in minutes. Opening any page stays well inside this.
-const BUDGET_REQUESTS: usize = 90;
+/// Fork: at most this many Web API reads in any `BUDGET_WINDOW`. A
+/// Development Mode app has a small quota; a loop that asked again every
+/// frame used it up in minutes. A start that loads every liked song stays
+/// inside this; writes, which are always the listener's own clicks, never
+/// wait for it.
+const BUDGET_REQUESTS: usize = 180;
 const BUDGET_WINDOW: Duration = Duration::from_secs(30);
 /// Fork: after Spotify reports the quota used up, requests fail here without
 /// going out for this long, so sign-in retries do not keep spending it.
@@ -563,7 +565,8 @@ impl ApiClient {
 
     /// Fork: fails at once while the quota pause lasts, then waits until the
     /// request budget has room.
-    async fn wait_for_budget(&self) -> Result<()> {
+    async fn wait_for_budget(&self, read: bool) -> Result<()> {
+        let started = Instant::now();
         loop {
             {
                 let mut quota = self.quota_until.lock().unwrap_or_else(|p| p.into_inner());
@@ -573,13 +576,22 @@ impl ApiClient {
                     None => {}
                 }
             }
+            if !read {
+                return Ok(());
+            }
             let wait = self
                 .budget
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .take(Instant::now());
             match wait {
-                None => return Ok(()),
+                None => {
+                    let waited = started.elapsed();
+                    if waited > Duration::from_secs(1) {
+                        log::info!("Web API read waited {waited:?} for the request budget");
+                    }
+                    return Ok(());
+                }
                 Some(wait) => {
                     log::debug!("Web API request budget full; waiting {wait:?}");
                     tokio::time::sleep(wait.max(Duration::from_millis(50))).await;
@@ -641,7 +653,7 @@ impl ApiClient {
             // After the permit: a 429 answered while this request queued has
             // extended the cooldown, and sending now would only earn another.
             self.wait_for_cooldown().await;
-            self.wait_for_budget().await?;
+            self.wait_for_budget(method == Method::GET).await?;
             let token = provider.access_token().await?;
             let mut request = self
                 .http
