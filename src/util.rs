@@ -232,7 +232,18 @@ pub fn tray_template_rgba(size: usize) -> Vec<u8> {
 /// It is the polished disc of `packaging/icons` at every size: a darker rim
 /// around a lit face.
 pub fn app_icon_rgba(size: usize) -> Vec<u8> {
-    mark_rgba(size, true)
+    // Fork: the original Spotify icon, taken from the desktop client.
+    const ORIGINAL: &[u8] = include_bytes!("../packaging/spotify-original/icon-256.png");
+    match image::load_from_memory_with_format(ORIGINAL, image::ImageFormat::Png) {
+        Ok(picture) => image::imageops::resize(
+            &picture.to_rgba8(),
+            size as u32,
+            size as u32,
+            image::imageops::FilterType::Lanczos3,
+        )
+        .into_raw(),
+        Err(_) => mark_rgba(size, true),
+    }
 }
 
 /// Mixes two colours, `t` of the way from `a` to `b`.
@@ -457,7 +468,7 @@ mod tests {
     #[test]
     fn the_icon_is_polished_at_every_size() {
         // #given the icon at a dock size and at a tray size
-        let (large, small) = (app_icon_rgba(128), app_icon_rgba(32));
+        let (large, small) = (mark_rgba(128, true), mark_rgba(32, true));
 
         // #then both have a darker rim around a lighter face
         let rim = pixel(&large, 128, 64, 6);

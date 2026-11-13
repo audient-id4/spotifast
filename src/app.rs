@@ -840,6 +840,8 @@ pub struct App {
     pub play_counts: HashMap<String, u64>,
     /// Albums and artists whose play counts were asked for, by URI.
     pub play_count_reads: HashMap<String, PlayCountRead>,
+    /// Genre and mood tags of liked songs, for the chips above Liked Songs.
+    pub liked_tags: crate::liked_tags::State,
     artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
     /// Upcoming releases read with artist play counts, kept only for this account.
     pub artist_prereleases: HashMap<String, crate::prerelease::UpcomingRelease>,
@@ -1489,6 +1491,7 @@ impl App {
             user_names: HashMap::new(),
             play_counts: HashMap::new(),
             play_count_reads: HashMap::new(),
+            liked_tags: Default::default(),
             artist_prereleases: HashMap::new(),
             artist_metadata_reads: HashMap::new(),
             play_count_generation: 0,
@@ -3115,6 +3118,11 @@ impl App {
                     generation,
                     result,
                 } => self.receive_play_counts(uri, generation, result),
+                Event::LikedTags { generation, tags } => {
+                    if generation == self.play_count_generation {
+                        self.liked_tags.receive(tags);
+                    }
+                }
                 Event::AudiobookShows(uris) => {
                     self.audiobook_shows.extend(uris);
                 }
@@ -3774,6 +3782,7 @@ impl App {
         self.artist_metadata_reads.clear();
         self.play_counts.clear();
         self.play_count_reads.clear();
+        self.liked_tags.clear();
         self.play_count_generation = self.play_count_generation.wrapping_add(1);
         self.show_pages.clear();
         self.album_types_requested.clear();
@@ -7866,6 +7875,35 @@ impl App {
                 generation: self.play_count_generation,
             });
         }
+    }
+
+    /// Asks for the tags of loaded liked songs that have none yet, once per
+    /// change of the list, so a song liked later gets its tags too.
+    pub fn request_liked_tags(&mut self) {
+        if !self.local_ready || !self.network_reachable {
+            return;
+        }
+        let key = (self.library.liked.revision, self.play_count_generation);
+        if self.liked_tags.checked == Some(key) {
+            return;
+        }
+        self.liked_tags.checked = Some(key);
+        let missing: Vec<String> = self
+            .library
+            .liked
+            .items
+            .iter()
+            .map(|saved| saved.track.uri.clone())
+            .filter(|uri| !self.liked_tags.asked.contains(uri))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        self.liked_tags.asked.extend(missing.iter().cloned());
+        self.backend.send(Command::LikedTags {
+            uris: missing,
+            generation: self.play_count_generation,
+        });
     }
 
     /// Whether Spotify's play counts for the album or artist `uri` arrived,

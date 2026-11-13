@@ -892,6 +892,12 @@ pub enum Command {
     /// Read what friends are listening to through the streaming session,
     /// for the app's request generation.
     FriendActivity(u64),
+    /// Read the genre and mood descriptors of liked songs, for the chips
+    /// above Liked Songs, for the app's request generation.
+    LikedTags {
+        uris: Vec<String>,
+        generation: u64,
+    },
     LoadLikedSongsCache {
         generation: u64,
     },
@@ -1110,6 +1116,11 @@ pub enum Event {
         uri: String,
         generation: u64,
         result: Result<session_reads::PageMetadata, String>,
+    },
+    /// Descriptors for some liked songs, by song URI.
+    LikedTags {
+        generation: u64,
+        tags: crate::liked_tags::Tags,
     },
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
@@ -2805,6 +2816,7 @@ impl Worker {
                 Command::UserNames(ids) => self.fetch_user_names(ids),
                 Command::PlayCounts { uri, generation } => self.fetch_play_counts(uri, generation),
                 Command::FriendActivity(generation) => self.fetch_friend_activity(generation),
+                Command::LikedTags { uris, generation } => self.fetch_liked_tags(uris, generation),
                 Command::LoadLikedSongsCache { generation } => {
                     if let Some(account) = self.api.account() {
                         let account_id = account.as_str().to_string();
@@ -4937,6 +4949,34 @@ impl Worker {
             .map_err(|_| "Spotify took too long to answer.".to_string())
             .and_then(|result| result.map_err(|error| error.to_string()));
             send(result);
+        });
+    }
+
+    /// Read liked songs' descriptors: the disk cache answers the songs it
+    /// knows, the streaming session the rest. A read still running when the
+    /// session ends is dropped.
+    fn fetch_liked_tags(&self, uris: Vec<String>, generation: u64) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let path = crate::liked_tags::cache_file(&self.dirs);
+        let mut cancelled = self.session.subscribe();
+        tokio::spawn(async move {
+            let read = crate::liked_tags::load(engine.session(), &path, uris, |tags| {
+                let _ = events.send(Event::LikedTags { generation, tags });
+                waker.wake();
+            });
+            tokio::select! {
+                biased;
+                _ = cancelled.changed() => {}
+                result = read => {
+                    if let Err(error) = result {
+                        log::warn!("Liked Songs tags unavailable: {error:#}");
+                    }
+                }
+            }
         });
     }
 

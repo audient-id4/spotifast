@@ -23,6 +23,7 @@ pub mod hyprland;
 pub mod i18n;
 pub mod images;
 pub mod liked;
+pub mod liked_tags;
 pub mod limiter;
 pub mod link;
 pub mod local_tags;

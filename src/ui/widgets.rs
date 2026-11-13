@@ -2222,7 +2222,9 @@ fn track_row_contents(
     }
     // Plays.
     if cols.plays > 0.0 {
-        if let Some(plays) = app.play_counts.get(row.item.uri()) {
+        // Fork: a fresh release Spotify has no count for yet shows nothing,
+        // as Spotify does, rather than 0.
+        if let Some(plays) = app.play_counts.get(row.item.uri()).filter(|plays| **plays > 0) {
             let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.plays, row_height));
             painter.text(
                 pos2(cell.left(), cell.center().y),
@@ -2252,17 +2254,34 @@ fn track_row_contents(
                 child.set_opacity(0.0);
             }
             // A liked heart stays green under the pointer.
-            let (icon, color, hover) = if saved == Some(true) {
-                (Icon::HeartFilled, palette.accent, palette.accent_hover)
+            // Fork: Spotify's desktop marks, a plus in a ring and, once
+            // saved, a check on a filled green disc.
+            let (icon, color, hover, size) = if saved == Some(true) {
+                let disc = if child.rect_contains_pointer(heart_rect) {
+                    palette.accent_hover
+                } else {
+                    palette.accent
+                };
+                child
+                    .painter()
+                    .circle_filled(heart_rect.center(), 8.5, disc);
+                (Icon::Check, Color32::from_gray(10), Color32::BLACK, 11.0)
             } else {
-                (Icon::Heart, palette.secondary, palette.text)
+                (Icon::CirclePlus, palette.secondary, palette.text, 17.0)
             };
             let tooltip = if saved == Some(true) {
-                gettext(app.locale, "Remove from Liked Songs")
+                gettext(app.locale, "Add to playlist")
             } else {
                 gettext(app.locale, "Save to Liked Songs")
             };
-            if theme::icon_button(&mut child, icon, 16.0, color, hover, &tooltip).clicked() {
+            let response = theme::icon_button(&mut child, icon, size, color, hover, &tooltip);
+            // Fork: a saved song's check opens the playlist checklist, as
+            // Spotify's desktop does; a song not saved yet is saved at once.
+            let popup_id = egui::Id::new(("row-liked-playlists", row.item.uri()));
+            if saved == Some(true) {
+                playlist_checklist(&mut child, app, &response, popup_id, row.item);
+            } else if response.clicked() {
+                forget_playlist_checklist(&mut child, popup_id);
                 app.actions
                     .push(Action::ToggleSaved(row.item.uri().to_string()));
             }
@@ -3487,6 +3506,175 @@ pub fn chip_row(
         mesh.add_triangle(0, 1, 2);
         mesh.add_triangle(0, 2, 3);
         ui.painter().add(egui::Shape::mesh(mesh));
+    }
+}
+
+/// Drops what a playlist checklist holds while open.
+pub(crate) fn forget_playlist_checklist(ui: &mut Ui, popup_id: egui::Id) {
+    egui::Popup::close_id(ui.ctx(), popup_id);
+    ui.data_mut(|data| {
+        data.remove::<String>(popup_id.with("query"));
+        data.remove::<PlaylistChecks>(popup_id.with("checks"));
+    });
+}
+
+/// The checklist a saved song's mark opens, as Spotify's desktop does:
+/// Liked Songs and the playlists with a check each. Checks change nothing
+/// until Done; a click outside drops them.
+pub(crate) fn playlist_checklist(
+    ui: &mut Ui,
+    app: &mut App,
+    response: &egui::Response,
+    popup_id: egui::Id,
+    item: &PlayableItem,
+) {
+    let palette = app.palette;
+    let query_id = popup_id.with("query");
+    let checks_id = popup_id.with("checks");
+    let shown = egui::Popup::menu(response)
+        .id(popup_id)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .frame(menu_frame(&palette))
+        .show(|ui| {
+            let stored = ui.data(|data| data.get_temp::<String>(query_id));
+            let fresh = stored.is_none();
+            let mut query = stored.unwrap_or_default();
+            let mut checks = ui
+                .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
+                .filter(|checks| checks.uri == item.uri())
+                .unwrap_or_else(|| PlaylistChecks::new(app, item));
+            let before = app.actions.len();
+            let field = playlist_picker(
+                ui,
+                app,
+                std::slice::from_ref(item),
+                &mut query,
+                Some(&mut checks),
+            );
+            if fresh {
+                field.request_focus();
+            }
+            menu_separator(ui, &palette);
+            let done = ui
+                .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    theme::pill_button(ui, &palette, &gettext(app.locale, "Done"), true)
+                })
+                .inner
+                .clicked();
+            if done {
+                if !checks.liked {
+                    app.actions
+                        .push(Action::ToggleSaved(item.uri().to_string()));
+                }
+                let changes = checks.changes(app, item);
+                app.actions.extend(changes);
+            }
+            ui.data_mut(|data| {
+                data.insert_temp(query_id, query);
+                data.insert_temp(checks_id, checks);
+            });
+            // Done or New playlist closes it.
+            if done || app.actions.len() > before {
+                ui.close();
+            }
+        });
+    if shown.is_none() {
+        ui.data_mut(|data| {
+            data.remove::<String>(query_id);
+            data.remove::<PlaylistChecks>(checks_id);
+        });
+    }
+}
+
+/// Fork: a chip row like `chip_row` with round arrow buttons on its edges, as
+/// Spotify's Liked Songs chips have: the right one while chips are hidden past
+/// the right edge, the left one once the row has scrolled. A click moves the
+/// row by most of its width.
+pub fn chip_row_with_arrows(
+    ui: &mut Ui,
+    id: egui::Id,
+    fill: egui::Color32,
+    add_contents: impl FnOnce(&mut Ui),
+) {
+    let target_id = id.with("arrow-target");
+    let target = ui.data_mut(|data| data.remove_temp::<f32>(target_id));
+    let row = ui
+        .scope(|ui| {
+            ui.style_mut().always_scroll_the_only_direction = true;
+            let mut area = egui::ScrollArea::horizontal()
+                .id_salt(id)
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            if let Some(x) = target {
+                area = area.scroll_offset(vec2(x, 0.0));
+            }
+            area.show(ui, |ui| {
+                ui.horizontal(add_contents);
+            })
+        })
+        .inner;
+    // The chips' own band: the area's rect can reach past them.
+    let rect = Rect::from_min_size(
+        row.inner_rect.min,
+        vec2(row.inner_rect.width(), row.content_size.y.min(row.inner_rect.height())),
+    );
+    let offset = row.state.offset.x;
+    let max = (row.content_size.x - rect.width()).max(0.0);
+    let step = (rect.width() * 0.7).max(80.0);
+    fn fade(ui: &Ui, rect: Rect, fill: egui::Color32, left: bool) {
+        let edge = if left {
+            Rect::from_min_max(rect.min, pos2(rect.left() + CHIP_FADE * 2.0, rect.bottom()))
+        } else {
+            Rect::from_min_max(pos2(rect.right() - CHIP_FADE * 2.0, rect.top()), rect.max)
+        };
+        let (outer, inner) = if left {
+            (fill, egui::Color32::TRANSPARENT)
+        } else {
+            (egui::Color32::TRANSPARENT, fill)
+        };
+        let mut mesh = egui::Mesh::default();
+        mesh.colored_vertex(edge.left_top(), outer);
+        mesh.colored_vertex(edge.right_top(), inner);
+        mesh.colored_vertex(edge.right_bottom(), inner);
+        mesh.colored_vertex(edge.left_bottom(), outer);
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        ui.painter().add(egui::Shape::mesh(mesh));
+    }
+    fn arrow(ui: &mut Ui, rect: Rect, id: egui::Id, left: bool) -> bool {
+        let size = rect.height().min(32.0);
+        let center = if left {
+            pos2(rect.left() + size / 2.0, rect.center().y)
+        } else {
+            pos2(rect.right() - size / 2.0, rect.center().y)
+        };
+        let button = Rect::from_center_size(center, vec2(size, size));
+        let response = ui
+            .interact(button, id.with(("arrow", left)), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        let color = if response.hovered() {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_gray(232)
+        };
+        ui.painter().circle_filled(center, size / 2.0, color);
+        let icon = if left { Icon::ChevronLeft } else { Icon::ChevronRight };
+        theme::paint_icon(ui, icon, button, size * 0.6, egui::Color32::from_gray(18));
+        response.clicked()
+    }
+    if offset > 0.5 {
+        fade(ui, rect, fill, true);
+        if arrow(ui, rect, id, true) {
+            ui.data_mut(|data| data.insert_temp(target_id, (offset - step).max(0.0)));
+            ui.ctx().request_repaint();
+        }
+    }
+    if max - offset > 0.5 {
+        fade(ui, rect, fill, false);
+        if arrow(ui, rect, id, false) {
+            ui.data_mut(|data| data.insert_temp(target_id, (offset + step).min(max)));
+            ui.ctx().request_repaint();
+        }
     }
 }
 

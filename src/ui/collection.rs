@@ -2571,6 +2571,10 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         .unwrap_or_default();
     let needle = filter.trim().to_lowercase();
     let sort = app.table_sorts.get(&Page::LikedSongs).copied();
+    // Fork: genre and mood chips. A chosen chip narrows the rows before
+    // the view is made, so Play plays only the songs it shows.
+    let chips = liked_chips(app);
+    let (items, items_revision, by_tag) = liked_tag_rows(app, ui, items);
     let table_view = prepare_table_view(
         ui,
         app,
@@ -2579,9 +2583,9 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         ViewOptions {
             needle: &needle,
             sort,
-            plays_shown_rows: false,
+            plays_shown_rows: by_tag,
         },
-        app.library.liked.revision,
+        items_revision,
     );
     let liked_view = table_view.view_uris.as_ref().map(Arc::clone);
     let actions = Actions {
@@ -2594,7 +2598,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         reload: None,
         name: &liked_title,
         save_radio: None,
-        plays_shown_rows: false,
+        plays_shown_rows: by_tag,
     };
     if !app.network_reachable {
         disabled_actions_row(app, ui, actions, Some(&mut filter));
@@ -2602,6 +2606,7 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         actions_row(app, ui, actions, Some(&mut filter));
     }
     ui.data_mut(|data| data.insert_temp(filter_id, filter.clone()));
+    liked_chip_row(app, ui, &chips);
     let uris: Arc<[String]> = items
         .iter()
         .map(|(item, _, _)| item.uri().to_string())
@@ -2636,10 +2641,113 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
             error: error.as_deref(),
             can_load_more,
             filter: &filter,
-            items_revision: app.library.liked.revision,
-            plays_shown_rows: false,
+            items_revision,
+            plays_shown_rows: by_tag,
         },
     );
+}
+
+/// Fork: the chips for the liked songs loaded so far, picked again only when
+/// the songs or their tags change. Asks for the tags still missing, and keeps
+/// loading Liked Songs so the chips count every song.
+fn liked_chips(app: &mut App) -> Arc<[crate::liked_tags::Chip]> {
+    app.request_liked_tags();
+    if app.network_reachable && app.library.liked.can_load_more() && !app.library.liked.loading {
+        app.actions.push(Action::LoadMore(Page::LikedSongs));
+    }
+    let key = (app.library.liked.revision, app.liked_tags.revision);
+    if let Some((cached, chips)) = &app.liked_tags.chips
+        && *cached == key
+    {
+        return Arc::clone(chips);
+    }
+    let chips: Arc<[crate::liked_tags::Chip]> = crate::liked_tags::chips(
+        app.library
+            .liked
+            .items
+            .iter()
+            .map(|saved| saved.track.uri.as_str()),
+        &app.liked_tags.tags,
+    )
+    .into();
+    if let Some(selected) = &app.liked_tags.selected
+        && !chips.iter().any(|chip| &chip.uri == selected)
+        && app.library.liked.is_complete()
+    {
+        app.liked_tags.selected = None;
+    }
+    app.liked_tags.chips = Some((key, Arc::clone(&chips)));
+    chips
+}
+
+/// Fork: the rows under the chosen chip, with a revision of their own so the
+/// table's caches tell them from the whole list. Without a chip, the rows
+/// and revision pass through.
+fn liked_tag_rows(
+    app: &App,
+    ui: &egui::Ui,
+    items: Arc<Vec<TableItem>>,
+) -> (Arc<Vec<TableItem>>, u64, bool) {
+    let revision = app.library.liked.revision;
+    let Some(concept) = app.liked_tags.selected.clone() else {
+        return (items, revision, false);
+    };
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (revision, app.liked_tags.revision, &concept).hash(&mut hasher);
+        hasher.finish() | 1 << 63
+    };
+    let cache_id = egui::Id::new("liked-tag-rows");
+    if let Some((cached, rows)) =
+        ui.data(|data| data.get_temp::<(u64, Arc<Vec<TableItem>>)>(cache_id))
+        && cached == key
+    {
+        return (rows, key, true);
+    }
+    let rows: Arc<Vec<TableItem>> = Arc::new(
+        items
+            .iter()
+            .filter(|(item, _, _)| {
+                app.liked_tags
+                    .tags
+                    .get(item.uri())
+                    .is_some_and(|concepts| crate::liked_tags::tagged(concepts, &concept))
+            })
+            .cloned()
+            .collect(),
+    );
+    ui.data_mut(|data| data.insert_temp(cache_id, (key, Arc::clone(&rows))));
+    (rows, key, true)
+}
+
+/// Fork: one row of genre and mood chips under the play button. Clicking a
+/// chip shows only its songs; clicking it again shows them all.
+fn liked_chip_row(app: &mut App, ui: &mut egui::Ui, chips: &[crate::liked_tags::Chip]) {
+    if chips.is_empty() {
+        return;
+    }
+    let palette = app.palette;
+    let selected = app.liked_tags.selected.clone();
+    let mut clicked = None;
+    ui.add_space(4.0);
+    widgets::chip_row_with_arrows(ui, egui::Id::new("liked-tag-chips"), palette.window, |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        for chip in chips {
+            let active = selected.as_deref() == Some(chip.uri.as_str());
+            let response = theme::soft_button(ui, &palette, None, &chip.term, active)
+                .on_hover_text(format!("{} songs", chip.songs));
+            if response.clicked() {
+                response.scroll_to_me(None);
+                clicked = Some(chip.uri.clone());
+            }
+        }
+    });
+    ui.add_space(8.0);
+    if let Some(uri) = clicked {
+        app.liked_tags.selected = (selected.as_deref() != Some(uri.as_str())).then_some(uri);
+        ui.ctx().request_repaint();
+    }
 }
 
 /// `1,234 songs` in a playlist, album or Liked Songs byline.
