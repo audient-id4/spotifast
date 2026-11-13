@@ -24,6 +24,41 @@ const MAX_IN_FLIGHT: usize = 6;
 const MAX_BACKGROUND_IN_FLIGHT: usize = 4;
 const RATE_LIMIT_RETRIES: u32 = 3;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
+/// Fork: at most this many Web API requests in any `BUDGET_WINDOW`. A
+/// Development Mode app has a small quota; a loop that asks again every frame
+/// used it up in minutes. Opening any page stays well inside this.
+const BUDGET_REQUESTS: usize = 90;
+const BUDGET_WINDOW: Duration = Duration::from_secs(30);
+/// Fork: after Spotify reports the quota used up, requests fail here without
+/// going out for this long, so sign-in retries do not keep spending it.
+const QUOTA_PAUSE: Duration = Duration::from_secs(10 * 60);
+
+/// Fork: when the requests of the last window went out, oldest first.
+#[derive(Default)]
+struct Budget {
+    sent: std::collections::VecDeque<Instant>,
+}
+
+impl Budget {
+    /// Records a request at `now` when the window has room; otherwise how
+    /// long until the oldest request leaves it.
+    fn take(&mut self, now: Instant) -> Option<Duration> {
+        while self
+            .sent
+            .front()
+            .is_some_and(|at| now.duration_since(*at) >= BUDGET_WINDOW)
+        {
+            self.sent.pop_front();
+        }
+        if self.sent.len() < BUDGET_REQUESTS {
+            self.sent.push_back(now);
+            None
+        } else {
+            let oldest = *self.sent.front().expect("full window");
+            Some(BUDGET_WINDOW.saturating_sub(now.duration_since(oldest)))
+        }
+    }
+}
 
 #[derive(Clone, Debug, Error)]
 pub enum ApiError {
@@ -385,6 +420,9 @@ pub struct ApiClient {
     queue_writes: tokio::sync::Mutex<()>,
     cooldown_until: tokio::sync::Mutex<Instant>,
     partner_cooldown_until: tokio::sync::Mutex<Instant>,
+    /// Fork: the request budget and the pause after the quota ran out.
+    budget: Mutex<Budget>,
+    quota_until: Mutex<Option<Instant>>,
     search_limit: u32,
     artist_albums_limit: u32,
     source: ApiSource,
@@ -410,6 +448,8 @@ impl ApiClient {
             queue_writes: tokio::sync::Mutex::new(()),
             cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             partner_cooldown_until: tokio::sync::Mutex::new(Instant::now()),
+            budget: Mutex::new(Budget::default()),
+            quota_until: Mutex::new(None),
             search_limit,
             artist_albums_limit,
             source,
@@ -521,6 +561,33 @@ impl ApiClient {
         }
     }
 
+    /// Fork: fails at once while the quota pause lasts, then waits until the
+    /// request budget has room.
+    async fn wait_for_budget(&self) -> Result<()> {
+        loop {
+            {
+                let mut quota = self.quota_until.lock().unwrap_or_else(|p| p.into_inner());
+                match *quota {
+                    Some(until) if until > Instant::now() => return Err(ApiError::QuotaExhausted),
+                    Some(_) => *quota = None,
+                    None => {}
+                }
+            }
+            let wait = self
+                .budget
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .take(Instant::now());
+            match wait {
+                None => return Ok(()),
+                Some(wait) => {
+                    log::debug!("Web API request budget full; waiting {wait:?}");
+                    tokio::time::sleep(wait.max(Duration::from_millis(50))).await;
+                }
+            }
+        }
+    }
+
     pub(super) async fn extend_cooldown(&self, wait: Duration) {
         let mut until = self.cooldown_until.lock().await;
         *until = (*until).max(Instant::now() + wait);
@@ -574,6 +641,7 @@ impl ApiClient {
             // After the permit: a 429 answered while this request queued has
             // extended the cooldown, and sending now would only earn another.
             self.wait_for_cooldown().await;
+            self.wait_for_budget().await?;
             let token = provider.access_token().await?;
             let mut request = self
                 .http
@@ -608,6 +676,12 @@ impl ApiClient {
                     .map_or(Duration::from_secs(1), Duration::from_secs);
                 let text = response.text().await.unwrap_or_default();
                 if is_quota_exhausted(&text) {
+                    *self.quota_until.lock().unwrap_or_else(|p| p.into_inner()) =
+                        Some(Instant::now() + QUOTA_PAUSE);
+                    log::warn!(
+                        "Spotify's Development Mode quota is used up; pausing Web API requests for {} minutes",
+                        QUOTA_PAUSE.as_secs() / 60
+                    );
                     return Err(ApiError::QuotaExhausted);
                 }
                 // A rejected queue append is safe to retry. Keep its place
@@ -1981,6 +2055,18 @@ mod tests {
             resumed.body(),
             json!({ "uris": ["spotify:track:b"], "position_ms": 42_000 })
         );
+    }
+
+    #[test]
+    fn the_budget_holds_requests_past_its_window_size() {
+        let mut budget = Budget::default();
+        let start = Instant::now();
+        for _ in 0..BUDGET_REQUESTS {
+            assert_eq!(budget.take(start), None);
+        }
+        let later = start + Duration::from_secs(10);
+        assert_eq!(budget.take(later), Some(Duration::from_secs(20)));
+        assert_eq!(budget.take(start + BUDGET_WINDOW), None);
     }
 
     #[test]

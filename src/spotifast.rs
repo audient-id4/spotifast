@@ -1,6 +1,8 @@
 //! Spotifast desktop command.
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Fork: no console window on Windows, debug builds included; the log is
+// still written to spotifast.log in the state folder.
+#![windows_subsystem = "windows"]
 
 mod entrypoint;
 
