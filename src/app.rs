@@ -669,6 +669,8 @@ pub struct App {
     /// Friend activity takes the right panel's place, so at most one of the
     /// Queue, Lyrics and Friend activity is open.
     pub show_friends_panel: bool,
+    /// Fork: the Now playing panel on the right.
+    pub show_now_playing_panel: bool,
     /// What friends last played. A refresh keeps the last answer on screen.
     pub friends: Loadable<Vec<crate::session_reads::FriendActivity>>,
     friends_in_flight: bool,
@@ -1405,6 +1407,7 @@ impl App {
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
             show_friends_panel: false,
+            show_now_playing_panel: false,
             friends: Loadable::NotLoaded,
             friends_in_flight: false,
             friends_fetched_at: None,
@@ -13492,6 +13495,7 @@ impl App {
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
                     self.show_friends_panel = false;
+                    self.show_now_playing_panel = false;
                     self.refresh_queue(true);
                 }
             }
@@ -13501,6 +13505,7 @@ impl App {
                 if self.show_lyrics_panel {
                     self.show_queue_panel = false;
                     self.show_friends_panel = false;
+                    self.show_now_playing_panel = false;
                     self.lyrics_following = true;
                     self.request_lyrics();
                 }
@@ -13510,7 +13515,16 @@ impl App {
                 if self.show_friends_panel {
                     self.show_queue_panel = false;
                     self.show_lyrics_panel = false;
+                    self.show_now_playing_panel = false;
                     self.refresh_friends();
+                }
+            }
+            Action::ToggleNowPlayingPanel => {
+                self.show_now_playing_panel = !self.show_now_playing_panel;
+                if self.show_now_playing_panel {
+                    self.show_queue_panel = false;
+                    self.show_lyrics_panel = false;
+                    self.show_friends_panel = false;
                 }
             }
             Action::SetLyricsFullscreen(fullscreen) => {

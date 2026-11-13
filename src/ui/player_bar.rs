@@ -1039,6 +1039,23 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
                 .collect(),
         });
     }
+    // Fork: the Now playing panel, as Spotify's desktop has it.
+    if theme::icon_button(
+        ui,
+        Icon::Disc,
+        18.0,
+        if app.show_now_playing_panel {
+            palette.accent
+        } else {
+            palette.secondary
+        },
+        palette.text,
+        &gettext(app.locale, "Now playing view"),
+    )
+    .clicked()
+    {
+        app.actions.push(Action::ToggleNowPlayingPanel);
+    }
     if theme::icon_button(
         ui,
         Icon::Mic,
