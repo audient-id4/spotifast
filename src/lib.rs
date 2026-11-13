@@ -52,6 +52,7 @@ pub mod resample;
 pub mod session_reads;
 pub mod settings;
 pub mod single_instance;
+pub mod stats;
 pub mod sink;
 pub mod skin;
 pub mod skin_previews;

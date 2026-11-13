@@ -906,9 +906,20 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
     let more = gettext(app.locale, "Show more top songs");
     let tracks = app.home.top_tracks.clone();
 
-    if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
-        app.actions.push(Action::Open(Page::TopSongs));
-    }
+    ui.horizontal(|ui| {
+        if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
+            app.actions.push(Action::Open(Page::TopSongs));
+        }
+        // Fork: play counts and listening time from the data export.
+        ui.add_space(12.0);
+        let stats = gettext(app.locale, "Your stats");
+        if theme::link(ui, &*stats, theme::medium(13.0), palette.secondary)
+            .on_hover_text("Play counts, hours by month and top artists from your Spotify data export")
+            .clicked()
+        {
+            app.actions.push(Action::Open(Page::Stats));
+        }
+    });
     ui.add_space(4.0);
 
     let labels: Vec<_> = TopPeriod::ALL

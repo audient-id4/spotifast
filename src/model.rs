@@ -127,6 +127,8 @@ pub enum Page {
     Radio(String),
     Queue,
     Settings,
+    /// Fork: listening statistics from Spotify's streaming history export.
+    Stats,
 }
 
 impl Page {
@@ -148,6 +150,7 @@ impl Page {
             Page::Radio(seed) => format!("radio:{seed}"),
             Page::Queue => "queue".into(),
             Page::Settings => "settings".into(),
+            Page::Stats => "stats".into(),
         }
     }
 
@@ -164,6 +167,7 @@ impl Page {
             "episodes" => Page::Episodes,
             "queue" => Page::Queue,
             "settings" => Page::Settings,
+            "stats" => Page::Stats,
             other => {
                 let (kind, id) = other.split_once(':')?;
                 match kind {

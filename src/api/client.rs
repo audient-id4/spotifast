@@ -1012,19 +1012,25 @@ impl ApiClient {
         uris: &[String],
         position: Option<u32>,
     ) -> Result<Option<String>> {
-        let mut body = json!({ "uris": uris });
-        if let Some(position) = position {
-            body["position"] = json!(position);
+        // The Web API takes at most 100 items a request; a longer list goes
+        // in order, batch by batch, each after the one before it.
+        let mut snapshot = None;
+        for (index, batch) in uris.chunks(100).enumerate() {
+            let mut body = json!({ "uris": batch });
+            if let Some(position) = position {
+                body["position"] = json!(position + (index * 100) as u32);
+            }
+            let value = self
+                .write(
+                    Method::POST,
+                    &format!("/playlists/{id}/items"),
+                    &[],
+                    Some(&body),
+                )
+                .await?;
+            snapshot = Self::snapshot(value).or(snapshot);
         }
-        let value = self
-            .write(
-                Method::POST,
-                &format!("/playlists/{id}/items"),
-                &[],
-                Some(&body),
-            )
-            .await?;
-        Ok(Self::snapshot(value))
+        Ok(snapshot)
     }
 
     pub async fn remove_playlist_items(

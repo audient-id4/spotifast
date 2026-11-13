@@ -20,6 +20,7 @@ pub mod radio;
 pub mod search;
 pub mod settings;
 pub mod show;
+pub mod stats;
 pub mod sidebar;
 pub mod skin_cards;
 mod soloist;
@@ -378,6 +379,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             Page::Radio(seed) => radio::radio(app, ui, &seed),
                             Page::Queue => queue::page(app, ui),
                             Page::Settings => settings::show(app, ui),
+                            Page::Stats => stats::show(app, ui),
                         }
                     });
                 if app.dialog.is_none() && !app.show_devices {

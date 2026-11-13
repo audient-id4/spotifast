@@ -13271,7 +13271,8 @@ mod tests {
         type Pick = fn(&egui::accesskit::Rect) -> bool;
         let targets: [(&str, &str, Pick); 3] = [
             ("album header", "Remove from Your Library", |_| true),
-            ("song row", "Remove from Liked Songs", |b| b.y1 < 700.0),
+            // Fork: a saved song's check opens the playlist checklist.
+            ("song row", "Add to playlist", |b| b.y1 < 700.0),
             ("player bar", "Add to playlist", |b| b.y0 > 700.0),
         ];
         for theme in ["dark", "light"] {
@@ -13328,6 +13329,12 @@ mod tests {
                             if rect.brush.is_some() && rect.rect.contains(centre) =>
                         {
                             Some(rect.fill)
+                        }
+                        // Fork: a saved song's mark is a check on a green disc.
+                        egui::Shape::Circle(circle)
+                            if circle.center.distance(centre) <= circle.radius =>
+                        {
+                            Some(circle.fill)
                         }
                         _ => None,
                     })

@@ -337,7 +337,79 @@ fn title_case(term: &str) -> String {
     }
 }
 
-/// What the app knows about Liked Songs tags.
+/// A song title with its version notes taken off, for telling one song
+/// liked twice: "Song (feat. X) - Remastered 2011" reads as "song".
+fn plain_title(name: &str) -> String {
+    let mut title = name.to_lowercase();
+    for cut in [" - ", " (", " ["] {
+        if let Some(at) = title.find(cut) {
+            title.truncate(at);
+        }
+    }
+    title.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Songs liked more than once under different URIs, as the same recording on
+/// an album and on its single: the same ISRC, or the same plain title and
+/// first artist with lengths within two seconds. Returns the indices of
+/// every such song, each copy right after the first, in list order.
+pub fn duplicates(tracks: &[&crate::api::models::Track]) -> Vec<usize> {
+    // Union-find over the songs, joined by either key.
+    let mut parent: Vec<usize> = (0..tracks.len()).collect();
+    fn root(parent: &mut [usize], mut at: usize) -> usize {
+        while parent[at] != at {
+            parent[at] = parent[parent[at]];
+            at = parent[at];
+        }
+        at
+    }
+    let mut by_isrc: HashMap<&str, usize> = HashMap::new();
+    let mut by_title: HashMap<(String, String), Vec<usize>> = HashMap::new();
+    for (index, track) in tracks.iter().enumerate() {
+        if track.uri.is_empty() || track.is_local {
+            continue;
+        }
+        if let Some(isrc) = track.external_ids.isrc.as_deref().filter(|isrc| !isrc.is_empty()) {
+            if let Some(&first) = by_isrc.get(isrc) {
+                let (a, b) = (root(&mut parent, first), root(&mut parent, index));
+                parent[b] = a;
+            } else {
+                by_isrc.insert(isrc, index);
+            }
+        }
+        let artist = track
+            .artists
+            .first()
+            .map(|artist| artist.name.to_lowercase())
+            .unwrap_or_default();
+        let same = by_title.entry((plain_title(&track.name), artist)).or_default();
+        for &other in same.iter() {
+            if tracks[other].duration_ms.abs_diff(track.duration_ms) <= 2000 {
+                let (a, b) = (root(&mut parent, other), root(&mut parent, index));
+                parent[b] = a;
+            }
+        }
+        same.push(index);
+    }
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for index in 0..tracks.len() {
+        let group = root(&mut parent, index);
+        groups.entry(group).or_default().push(index);
+    }
+    let mut out: Vec<Vec<usize>> = groups
+        .into_values()
+        .filter(|group| {
+            group.len() > 1 && {
+                let first = &tracks[group[0]].uri;
+                group.iter().any(|&i| &tracks[i].uri != first)
+            }
+        })
+        .collect();
+    out.sort_by_key(|group| group[0]);
+    out.into_iter().flatten().collect()
+}
+
+/// What the app knows about song tags, and each list's chips.
 #[derive(Default)]
 pub struct State {
     pub tags: Tags,
@@ -345,12 +417,15 @@ pub struct State {
     pub asked: HashSet<String>,
     /// Changes whenever `tags` does.
     pub revision: u64,
-    /// The chosen chip's concept URI.
-    pub selected: Option<String>,
-    /// The Liked Songs revision whose songs were last checked for missing tags.
-    pub checked: Option<(u64, u64)>,
-    /// Chips with the revisions they were picked for.
-    pub chips: Option<((u64, u64), Arc<[Chip]>)>,
+    /// The chosen chips' concept URIs, by list ("liked" or a playlist id).
+    /// A song shows when it carries every one of them.
+    pub selected: HashMap<String, Vec<String>>,
+    /// The list revision each list's songs were last checked at.
+    pub checked: HashMap<String, (u64, u64)>,
+    /// Each list's chips with the revisions they were picked for.
+    pub chips: HashMap<String, ((u64, u64), Arc<[Chip]>)>,
+    /// Whether Liked Songs shows only the songs liked more than once.
+    pub duplicates: bool,
 }
 
 impl State {
@@ -361,6 +436,13 @@ impl State {
     pub fn receive(&mut self, tags: Tags) {
         self.tags.extend(tags);
         self.revision = self.revision.wrapping_add(1);
+    }
+
+    /// Whether the song carries every chosen concept.
+    pub fn matches(&self, uri: &str, selected: &[String]) -> bool {
+        self.tags
+            .get(uri)
+            .is_some_and(|concepts| selected.iter().all(|c| tagged(concepts, c)))
     }
 }
 
@@ -419,6 +501,33 @@ mod tests {
         let chips = chips(uris.iter().map(String::as_str), &tags);
         let names: Vec<_> = chips.iter().map(|chip| chip.uri.as_str()).collect();
         assert_eq!(names, ["hiphop", "chill"]);
+    }
+
+    #[test]
+    fn finds_a_song_liked_from_album_and_single() {
+        use crate::api::models::{ArtistRef, ExternalIds, Track};
+        let track = |uri: &str, name: &str, isrc: Option<&str>, ms: u32| Track {
+            uri: uri.into(),
+            name: name.into(),
+            duration_ms: ms,
+            artists: vec![ArtistRef {
+                name: "Offset".into(),
+                ..Default::default()
+            }],
+            external_ids: ExternalIds {
+                isrc: isrc.map(Into::into),
+            },
+            ..Default::default()
+        };
+        let list = [
+            track("spotify:track:a", "My Heart", None, 191_000),
+            track("spotify:track:b", "Other", Some("US1"), 100_000),
+            track("spotify:track:c", "My Heart (feat. X)", None, 190_200),
+            track("spotify:track:d", "Different", Some("US1"), 120_000),
+            track("spotify:track:e", "My Heart", None, 240_000),
+        ];
+        let refs: Vec<&Track> = list.iter().collect();
+        assert_eq!(duplicates(&refs), [0, 2, 1, 3]);
     }
 
     #[test]

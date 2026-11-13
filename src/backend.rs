@@ -898,6 +898,8 @@ pub enum Command {
         uris: Vec<String>,
         generation: u64,
     },
+    /// Read the streaming history export in the settings folder.
+    LoadStats,
     LoadLikedSongsCache {
         generation: u64,
     },
@@ -1122,6 +1124,9 @@ pub enum Event {
         generation: u64,
         tags: crate::liked_tags::Tags,
     },
+    /// The streaming history export, read; Err("empty") or Err("no_folder")
+    /// when there is none yet.
+    Stats(Result<std::sync::Arc<crate::stats::Stats>, String>),
     /// Saved shows that Spotify's metadata marks as audiobooks. librespot
     /// cannot play them, so the Podcasts shelf leaves them out.
     AudiobookShows(Vec<String>),
@@ -2817,6 +2822,19 @@ impl Worker {
                 Command::PlayCounts { uri, generation } => self.fetch_play_counts(uri, generation),
                 Command::FriendActivity(generation) => self.fetch_friend_activity(generation),
                 Command::LikedTags { uris, generation } => self.fetch_liked_tags(uris, generation),
+                Command::LoadStats => {
+                    let folder = crate::stats::folder(&self.dirs);
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::spawn(async move {
+                        let result = tokio::task::spawn_blocking(move || crate::stats::read(&folder))
+                            .await
+                            .map_err(|error| error.to_string())
+                            .and_then(|result| result.map(std::sync::Arc::new));
+                        let _ = events.send(Event::Stats(result));
+                        waker.wake();
+                    });
+                }
                 Command::LoadLikedSongsCache { generation } => {
                     if let Some(account) = self.api.account() {
                         let account_id = account.as_str().to_string();

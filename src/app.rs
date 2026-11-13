@@ -842,6 +842,8 @@ pub struct App {
     pub play_count_reads: HashMap<String, PlayCountRead>,
     /// Genre and mood tags of liked songs, for the chips above Liked Songs.
     pub liked_tags: crate::liked_tags::State,
+    /// Fork: the streaming history export, once read.
+    pub stats: Loadable<std::sync::Arc<crate::stats::Stats>>,
     artist_metadata_reads: HashMap<String, ArtistMetadataRead>,
     /// Upcoming releases read with artist play counts, kept only for this account.
     pub artist_prereleases: HashMap<String, crate::prerelease::UpcomingRelease>,
@@ -1492,6 +1494,7 @@ impl App {
             play_counts: HashMap::new(),
             play_count_reads: HashMap::new(),
             liked_tags: Default::default(),
+            stats: Loadable::NotLoaded,
             artist_prereleases: HashMap::new(),
             artist_metadata_reads: HashMap::new(),
             play_count_generation: 0,
@@ -3118,6 +3121,12 @@ impl App {
                     generation,
                     result,
                 } => self.receive_play_counts(uri, generation, result),
+                Event::Stats(result) => {
+                    self.stats = match result {
+                        Ok(stats) => Loadable::Loaded(stats),
+                        Err(error) => Loadable::Failed(error),
+                    };
+                }
                 Event::LikedTags { generation, tags } => {
                     if generation == self.play_count_generation {
                         self.liked_tags.receive(tags);
@@ -3719,7 +3728,7 @@ impl App {
                     self.refresh_queue(true);
                 }
             }
-            Page::Settings => {}
+            Page::Settings | Page::Stats => {}
         }
     }
 
@@ -6523,6 +6532,7 @@ impl App {
                 }
             }
             Page::Settings => self.refresh_autostart(),
+            Page::Stats => self.load_stats(),
         }
     }
 
@@ -7877,24 +7887,34 @@ impl App {
         }
     }
 
-    /// Asks for the tags of loaded liked songs that have none yet, once per
-    /// change of the list, so a song liked later gets its tags too.
-    pub fn request_liked_tags(&mut self) {
+    /// Fork: reads the streaming history export again.
+    pub fn load_stats(&mut self) {
+        if !matches!(self.stats, Loadable::Loading) {
+            self.stats = Loadable::Loading;
+            self.backend.send(Command::LoadStats);
+        }
+    }
+
+    /// Asks for the tags of a list's loaded songs that have none yet, once
+    /// per change of the list, so a song added later gets its tags too.
+    /// `key` names the list: "liked" or a playlist id.
+    pub fn request_tags<'a>(
+        &mut self,
+        key: &str,
+        revision: u64,
+        uris: impl Iterator<Item = &'a str>,
+    ) {
         if !self.local_ready || !self.network_reachable {
             return;
         }
-        let key = (self.library.liked.revision, self.play_count_generation);
-        if self.liked_tags.checked == Some(key) {
+        let checked = (revision, self.play_count_generation);
+        if self.liked_tags.checked.get(key) == Some(&checked) {
             return;
         }
-        self.liked_tags.checked = Some(key);
-        let missing: Vec<String> = self
-            .library
-            .liked
-            .items
-            .iter()
-            .map(|saved| saved.track.uri.clone())
-            .filter(|uri| !self.liked_tags.asked.contains(uri))
+        self.liked_tags.checked.insert(key.to_string(), checked);
+        let missing: Vec<String> = uris
+            .filter(|uri| uri.starts_with("spotify:track:") && !self.liked_tags.asked.contains(*uri))
+            .map(str::to_owned)
             .collect();
         if missing.is_empty() {
             return;
