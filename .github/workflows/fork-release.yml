@@ -1,0 +1,115 @@
+name: Fork release
+
+# The fork's own releases. Upstream's release.yml needs its signing
+# environments and keys, which the fork does not have, so the fork builds
+# unsigned packages under its own tag prefix: push a tag like `fork-1`.
+on:
+  push:
+    tags: ["fork-*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (created on the default branch if missing)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # MilkDrop (libprojectM) is left out: it needs GLEW and CMake per platform
+  # and nothing in the fork depends on it.
+  FEATURES: --no-default-features --features soloist-native-audio
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup target add x86_64-pc-windows-msvc
+      - run: cargo build --locked --release --target x86_64-pc-windows-msvc ${{ env.FEATURES }}
+      - name: Package
+        shell: bash
+        run: |
+          name="spotifast-${TAG}-windows-x64"
+          mkdir -p "dist/$name"
+          cp target/x86_64-pc-windows-msvc/release/spotifast.exe README.md LICENSE "dist/$name/"
+          cd dist && 7z a "$name.zip" "$name" >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build both architectures
+        run: |
+          cargo build --locked --release --target aarch64-apple-darwin ${{ env.FEATURES }}
+          cargo build --locked --release --target x86_64-apple-darwin ${{ env.FEATURES }}
+          mkdir -p universal
+          lipo -create target/aarch64-apple-darwin/release/spotifast \
+            target/x86_64-apple-darwin/release/spotifast -output universal/spotifast
+      # Ad-hoc signed (no Apple Developer ID): Gatekeeper asks once, see the
+      # release notes.
+      - name: App bundle and disk image
+        run: |
+          version=$(grep -m1 -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          mkdir -p dist/stage
+          bash packaging/macos/bundle.sh universal/spotifast dist/stage/Spotifast.app "$version"
+          ln -s /Applications dist/stage/Applications
+          hdiutil create -volname Spotifast -srcfolder dist/stage -ov -format UDZO \
+            "dist/spotifast-${TAG}-macos-universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxkbcommon-dev \
+            libwayland-dev libgl1-mesa-dev libclang-dev
+      - run: cargo build --locked --release ${{ env.FEATURES }}
+      - name: Package
+        run: |
+          name="spotifast-${TAG}-linux-x86_64"
+          mkdir -p "dist/$name"
+          cp target/release/spotifast README.md LICENSE "dist/$name/"
+          cp --parents packaging/applications/spotifast.desktop packaging/icons/spotifast.svg "dist/$name/"
+          cd dist && tar czf "$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [windows, macos, linux]
+    if: ${{ !cancelled() && (needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - run: cd dist && sha256sum * > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: Spotifast fork ${{ env.TAG }}
+          body_path: fork/release-notes.md
+          files: dist/*

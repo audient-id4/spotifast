@@ -30,6 +30,8 @@ use fastframe_now_playing::{
     Repeat as MediaRepeat, State as MediaState, Track as MediaTrack,
 };
 
+/// The fork turns off the self-updater outside tests (see check_for_updates).
+const FORK_BUILD: bool = !cfg!(test);
 const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
 const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
 /// The shortest regular gap between playback polls, which spend the Web API
@@ -14363,6 +14365,12 @@ impl App {
     }
 
     fn check_for_updates(&mut self, manual: bool) {
+        // Fork builds: upstream's updater would replace this build with
+        // upstream's release and drop the fork's features. Fork releases are
+        // downloaded by hand from the fork's Releases page.
+        if FORK_BUILD {
+            return;
+        }
         if self.update_checking
             || (self.offline && self.update_source.is_github())
             || !matches!(
