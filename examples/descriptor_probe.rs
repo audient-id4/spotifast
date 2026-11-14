@@ -19,7 +19,10 @@ use protobuf::EnumOrUnknown;
 
 const KINDS: [(ExtensionKind, &str); 2] = [
     (ExtensionKind::TRACK_DESCRIPTOR, "TRACK_DESCRIPTOR"),
-    (ExtensionKind::TRACK_EXTRA_DESCRIPTORS, "TRACK_EXTRA_DESCRIPTORS"),
+    (
+        ExtensionKind::TRACK_EXTRA_DESCRIPTORS,
+        "TRACK_EXTRA_DESCRIPTORS",
+    ),
 ];
 
 fn main() -> anyhow::Result<()> {
@@ -85,7 +88,10 @@ fn main() -> anyhow::Result<()> {
                 );
                 for data in &array.extension_data {
                     let Some(any) = data.extension_data.as_ref() else {
-                        println!("  {} status={} (empty)", data.entity_uri, data.header.status_code);
+                        println!(
+                            "  {} status={} (empty)",
+                            data.entity_uri, data.header.status_code
+                        );
                         continue;
                     };
                     if shown < 5 {
@@ -152,7 +158,10 @@ async fn liked_uris(session: &Session) -> anyhow::Result<Vec<String>> {
         .collect();
     if uris.is_empty() {
         let text = body.to_string();
-        println!("fetchLibraryTracks answer: {}", &text[..text.len().min(1500)]);
+        println!(
+            "fetchLibraryTracks answer: {}",
+            &text[..text.len().min(1500)]
+        );
     }
     anyhow::ensure!(
         !uris.is_empty(),

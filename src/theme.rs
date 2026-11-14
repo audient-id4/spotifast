@@ -438,11 +438,48 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
 /// renders text.
 fn install_fonts(ctx: &egui::Context) {
     let emoji = egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf"));
-    let mut fonts = fastframe_fonts::FontSetup::default()
-        .companion("noto_emoji", std::sync::Arc::new(emoji))
-        .definitions();
+    let mut setup =
+        fastframe_fonts::FontSetup::default().companion("noto_emoji", std::sync::Arc::new(emoji));
+    // Fork: the face closest to Spotify Mix leads, Inter behind it for the
+    // scripts it lacks. A font file put in the settings folder's `fonts`
+    // directory (a licensed ABC Ginto, say) wins over the bundled Figtree.
+    if let Some(face) = interface_face() {
+        setup = setup.local_font(face);
+    }
+    let mut fonts = setup.definitions();
     text_rendering().apply_to(&mut fonts);
     ctx.set_fonts(fonts);
+}
+
+/// Fork: the interface face. The first `.ttf` or `.otf` in the settings
+/// folder's `fonts` directory, else the bundled Figtree, the free face
+/// nearest Spotify Mix by glyph shape (fork/spotify-ui-spec.md).
+fn interface_face() -> Option<fastframe_fonts::LocalFont> {
+    let folder = crate::paths::AppDirs::discover().dirs.config.join("fonts");
+    if let Ok(entries) = std::fs::read_dir(&folder) {
+        let mut files: Vec<std::path::PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| {
+                        ext.eq_ignore_ascii_case("ttf") || ext.eq_ignore_ascii_case("otf")
+                    })
+            })
+            .collect();
+        files.sort();
+        for path in files {
+            match fastframe_fonts::LocalFont::load(&path, 0) {
+                Ok(face) => return Some(face),
+                Err(error) => log::warn!("unusable interface font {}: {error}", path.display()),
+            }
+        }
+    }
+    fastframe_fonts::LocalFont::from_bytes(
+        include_bytes!("../assets/fonts/Figtree-Variable.ttf").to_vec(),
+        0,
+    )
+    .ok()
 }
 
 fastframe_icons::icons! {
@@ -1287,7 +1324,14 @@ mod tests {
         let fonts = ctx.fonts(|fonts| fonts.definitions().clone());
         for weight in fastframe_fonts::Weight::ALL {
             let family = &fonts.families[&weight.family()];
-            assert_eq!(family[..2], [weight.name(), "noto_emoji"], "{weight:?}");
+            // Fork: the bundled face leads; Inter and the emoji face follow
+            // it, the emoji right behind Inter.
+            let inter = family
+                .iter()
+                .position(|name| name == weight.name())
+                .unwrap_or_else(|| panic!("{weight:?} lacks Inter: {family:?}"));
+            assert!(inter <= 1, "{weight:?}: {family:?}");
+            assert_eq!(family[inter + 1], "noto_emoji", "{weight:?}: {family:?}");
         }
         assert_eq!(
             fonts.families[&egui::FontFamily::Monospace][1],

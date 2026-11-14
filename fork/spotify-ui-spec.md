@@ -2,8 +2,27 @@
 
 Measured from open.spotify.com (same layout as the desktop app) at a
 1440x900 viewport with `getComputedStyle`. Spotify's own font (Spotify Mix)
-is licensed to Spotify and is not copied; the fork keeps Inter. Icons are the
-closest Lucide shapes, not Spotify's.
+is licensed to Spotify and is not copied. Icons are the closest Lucide
+shapes, not Spotify's.
+
+## Font
+
+Compared against Spotify Mix drawn by the web player itself: per-glyph
+overlap at 180px (bold / regular / title weight) and per-character advance
+widths (mean deviation, regular / bold).
+
+| Face | Licence | Glyph overlap | Advance widths |
+|---|---|---|---|
+| ABC Ginto (Dinamo) | paid | not measurable cross-site; by eye the nearest | 3.6% / 3.8% |
+| Circular XX (Lineto) | paid | not measurable cross-site | 3.3% / 2.9% |
+| Figtree | OFL, bundled | 83.7 / 76.9 / 85.2 | 4.4% / 3.6% |
+| Albert Sans | OFL | 81.4 / 73.5 / 80.3 | |
+| DM Sans | OFL | 80.9 / 75.6 / 77.5 | 4.2% / 4.4% |
+| Inter (upstream) | OFL | 79.2 / 70.3 / 80.7 | 5.0% / 5.5% |
+
+The fork bundles Figtree. A `.ttf`/`.otf` in the settings folder's `fonts`
+directory (a licensed ABC Ginto Normal, say) replaces it; Inter stays behind
+for Cyrillic and other scripts.
 
 ## Colours
 

@@ -165,9 +165,8 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             // Fork: Spotify's header: the kind in 14px, the title from 96
             // down to fit, the byline in 14px, the block resting on the
             // cover's foot.
-            // Inter runs about a tenth wider than Spotify's face: 88 here
-            // fills the width 96 does there.
-            let mut size = if cover_size > 200.0 { 88.0 } else { 48.0 };
+            // Figtree at 92 fills the width Spotify Mix does at 96.
+            let mut size = if cover_size > 200.0 { 92.0 } else { 48.0 };
             let title_height = loop {
                 let galley = ui.painter().layout_no_wrap(
                     hero.title.to_string(),

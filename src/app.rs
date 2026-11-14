@@ -612,6 +612,9 @@ pub struct App {
     hidden_songs_requested: bool,
     pub track_cache: HashMap<String, Track>,
     track_requests: HashSet<String>,
+    /// Fork: songs whose lookup failed, and when. A song that keeps failing
+    /// is not asked for again on every frame, which used up the quota.
+    track_failures: HashMap<String, Instant>,
     /// Album URIs already resolved or attempted through librespot this session.
     album_types_requested: HashSet<String>,
     /// Saved shows Spotify marks as audiobooks, which librespot cannot play;
@@ -1378,6 +1381,7 @@ impl App {
             hidden_songs_requested: false,
             track_cache: HashMap::new(),
             track_requests: HashSet::new(),
+            track_failures: HashMap::new(),
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
             audiobooks_requested: HashSet::new(),
@@ -4019,6 +4023,19 @@ impl App {
         }
     }
 
+    /// Fork: claims a song lookup unless one is on its way or the song failed
+    /// in the last ten minutes.
+    fn claim_track_request(&mut self, id: &str) -> bool {
+        if self
+            .track_failures
+            .get(id)
+            .is_some_and(|at| at.elapsed() < Duration::from_secs(600))
+        {
+            return false;
+        }
+        self.track_requests.insert(id.to_string())
+    }
+
     /// Loads details for the remembered track before playback starts.
     fn request_resume_track(&mut self) {
         if self.now_playing_live().is_some() {
@@ -4038,7 +4055,7 @@ impl App {
             self.track_used.insert(id, Instant::now());
             return;
         }
-        if !self.track_requests.insert(id.clone()) {
+        if !self.claim_track_request(&id) {
             return;
         }
         self.backend.api(ApiRequest::Track { id });
@@ -4287,7 +4304,7 @@ impl App {
             }
         }
         for id in candidates {
-            if self.track_requests.insert(id.clone()) {
+            if self.claim_track_request(&id) {
                 self.backend.api(ApiRequest::Track { id });
             }
         }
@@ -4380,7 +4397,7 @@ impl App {
             && !now.is_episode
             && let Some(id) = &now.id
             && !self.track_cache.contains_key(id)
-            && self.track_requests.insert(id.clone())
+            && self.claim_track_request(&id)
         {
             self.backend.api(ApiRequest::Track { id: id.clone() });
         }
@@ -9830,6 +9847,7 @@ impl App {
                         self.track_used.insert(id, Instant::now());
                     }
                     Err(error) => {
+                        self.track_failures.insert(id.clone(), Instant::now());
                         self.resolve_pasted_song(&format!("spotify:track:{id}"), None);
                         if self.pending_link.as_deref()
                             == Some(format!("spotify:track:{id}").as_str())
@@ -10124,7 +10142,7 @@ impl App {
                             "This song's album is not on Spotify",
                         )),
                     }
-                } else if self.track_requests.insert(id.clone()) {
+                } else if self.claim_track_request(&id) {
                     // The answer lands in the cache, and the link waits
                     // for the next frame to find it there.
                     self.backend.api(ApiRequest::Track { id });
@@ -12431,7 +12449,7 @@ impl App {
             if let Some(item) = self.known_song(&uri) {
                 paste.found.insert(uri, item);
             } else if let Some(id) = uri.strip_prefix("spotify:track:").map(str::to_string) {
-                if self.track_requests.insert(id.clone()) {
+                if self.claim_track_request(&id) {
                     self.backend.api(ApiRequest::Track { id });
                 }
             } else {
@@ -15322,7 +15340,7 @@ impl App {
             ..Default::default()
         });
         self.liked_songs.change(uri.to_string(), saved, track);
-        if saved && missing && self.track_requests.insert(id.to_string()) {
+        if saved && missing && self.claim_track_request(id) {
             self.backend.api(ApiRequest::Track { id: id.to_string() });
         }
         true
@@ -36301,6 +36319,24 @@ mod tests {
         );
         app.sync_liked_songs();
         app
+    }
+
+    /// Fork: a song lookup that failed is not asked for again on every
+    /// frame. The remembered song used to be, which used up the quota.
+    #[test]
+    fn a_failed_song_lookup_waits_before_it_is_asked_again() {
+        let mut app = test_app("failed-song-lookup");
+        assert!(app.claim_track_request("gone"));
+        app.handle_api(ApiResponse::Track {
+            id: "gone".into(),
+            result: Err(crate::api::client::ApiError::Status {
+                status: 404,
+                message: "not found".into(),
+            }),
+        });
+        assert!(!app.claim_track_request("gone"));
+        assert!(app.claim_track_request("other"));
+        app.backend.shutdown();
     }
 
     #[test]

@@ -39,6 +39,42 @@ const QUOTA_PAUSE: Duration = Duration::from_secs(10 * 60);
 #[derive(Default)]
 struct Budget {
     sent: std::collections::VecDeque<Instant>,
+    /// Fork: requests asked for since `tally_since`, by path, so a loop that
+    /// keeps asking shows in the log by name.
+    tally: std::collections::HashMap<String, u32>,
+    tally_since: Option<Instant>,
+}
+
+impl Budget {
+    /// Counts one request for `path`; every 30 seconds logs the busiest paths.
+    fn note(&mut self, path: &str) {
+        let key: String = path
+            .split('?')
+            .next()
+            .unwrap_or(path)
+            .split('/')
+            .map(|part| {
+                if part.len() == 22 && part.chars().all(|c| c.is_ascii_alphanumeric()) {
+                    "{id}"
+                } else {
+                    part
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        *self.tally.entry(key).or_default() += 1;
+        let since = *self.tally_since.get_or_insert_with(Instant::now);
+        if since.elapsed() >= Duration::from_secs(30) {
+            let total: u32 = self.tally.values().sum();
+            let mut busiest: Vec<_> = self.tally.drain().collect();
+            busiest.sort_by(|a, b| b.1.cmp(&a.1));
+            busiest.truncate(6);
+            if total > 30 {
+                log::warn!("Web API asked {total} times in 30s; busiest: {busiest:?}");
+            }
+            self.tally_since = Some(Instant::now());
+        }
+    }
 }
 
 impl Budget {
@@ -653,6 +689,10 @@ impl ApiClient {
             // After the permit: a 429 answered while this request queued has
             // extended the cooldown, and sending now would only earn another.
             self.wait_for_cooldown().await;
+            self.budget
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .note(path);
             self.wait_for_budget(method == Method::GET).await?;
             let token = provider.access_token().await?;
             let mut request = self
