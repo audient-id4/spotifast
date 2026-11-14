@@ -121,10 +121,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(14.0);
 
     // The song and its save mark.
-    // Fork: Spotify's 24px title with the mark at the panel's right edge.
+    // Fork: Spotify's 24px title with the mark at the panel's right edge,
+    // the artists close under it.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let width = ui.available_width();
     let row = ui.allocate_ui_with_layout(
-        vec2(width, 32.0),
+        vec2(width, 30.0),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
         if !now.is_episode {
@@ -165,6 +167,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         },
     );
     let _ = row;
+    ui.add_space(2.0);
     // The artists, each a link.
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -179,9 +182,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             }
         }
         if now.artists.is_empty() && !now.subtitle.is_empty() {
-            theme::text(ui, &now.subtitle, theme::regular(14.0), palette.secondary);
+            theme::text(ui, &now.subtitle, theme::regular(16.0), palette.secondary);
         }
     });
+    ui.spacing_mut().item_spacing.y = 6.0;
     ui.add_space(18.0);
 
     lyrics_card(app, ui, &now);
