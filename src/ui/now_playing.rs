@@ -34,7 +34,14 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         .frame(
             Frame::new()
                 .fill(palette.panel)
-                .inner_margin(Margin::symmetric(12, 12)),
+                .corner_radius(8.0)
+                .outer_margin(Margin {
+                    left: 0,
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                })
+                .inner_margin(Margin::symmetric(16, 16)),
         );
     let response = panel.show(ui, |ui| {
         let window_controls =

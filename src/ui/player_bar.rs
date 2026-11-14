@@ -45,7 +45,9 @@ pub(crate) fn end_tint_session(ctx: &egui::Context) {
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let fill = eased_fill(ui.ctx(), palette.panel, app.now_playing_tint());
+    // Fork: Spotify's player bar sits on the window's black, untinted.
+    let _ = eased_fill;
+    let fill = palette.window;
     egui::Panel::bottom("player-bar")
         .exact_size(theme::PLAYER_BAR_HEIGHT)
         .resizable(false)
@@ -634,9 +636,10 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             };
             heart_ui
                 .painter()
-                .circle_filled(heart_rect.center(), 9.0, disc);
+                .circle_filled(heart_rect.center(), 8.0, disc);
         }
-        let size = if saved { 12.0 } else { 18.0 };
+        // Fork: Spotify's mark is 16 either way.
+        let size = if saved { 10.0 } else { 16.0 };
         let response = theme::icon_button(&mut heart_ui, icon, size, color, hover, &tooltip);
         let popup_id = egui::Id::new(LIKED_POPUP_ID);
         // A liked song's mark opens a checklist of Liked Songs and the
@@ -657,8 +660,10 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
 
 /// The transport's button widths: icon buttons occupy icon size + 12; the
 /// disc is 36.
-const TRANSPORT_WIDTHS: [f32; 5] = [29.0, 30.0, 36.0, 30.0, 29.0];
-const TRANSPORT_GAP: f32 = 10.0;
+// Fork: Spotify's spacing. Every control is 32; the play disc's slot is 48
+// so it stands 16 from its neighbours, the others 8 apart.
+const TRANSPORT_WIDTHS: [f32; 5] = [32.0, 32.0, 48.0, 32.0, 32.0];
+const TRANSPORT_GAP: f32 = 8.0;
 
 /// The transport's buttons from Shuffle to Repeat, centred in the bar.
 fn transport_width() -> f32 {
@@ -691,7 +696,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let widths = TRANSPORT_WIDTHS;
     let mut x = region.center().x - transport_width() / 2.0;
     let mut slot = |width: f32| {
-        let rect = Rect::from_center_size(pos2(x + width / 2.0, cy), vec2(width, 36.0));
+        let rect = Rect::from_center_size(pos2(x + width / 2.0, cy), vec2(width, 32.0));
         x += width + TRANSPORT_GAP;
         rect
     };
@@ -708,7 +713,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     let shuffle_button = theme::icon_button(
         &mut cell,
         Icon::Shuffle,
-        17.0,
+        16.0,
         shuffle_color,
         if shuffle {
             palette.accent_hover
@@ -733,7 +738,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     if theme::icon_button(
         &mut cell,
         Icon::SkipBackFilled,
-        18.0,
+        16.0,
         dim,
         palette.text,
         &gettext(app.locale, "Previous"),
@@ -748,7 +753,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         let mut cell = centered(ui, disc);
         theme::circle_spinner(
             &mut cell,
-            36.0,
+            32.0,
             palette.text,
             palette.window,
             &gettext(app.locale, "Loading…"),
@@ -768,7 +773,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         if theme::circle_button(
             &mut cell,
             icon,
-            36.0,
+            32.0,
             palette.text,
             hover,
             palette.window,
@@ -788,7 +793,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     if theme::icon_button(
         &mut cell,
         Icon::SkipForwardFilled,
-        18.0,
+        16.0,
         dim,
         palette.text,
         &gettext(app.locale, "Next"),
@@ -815,7 +820,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
     if theme::icon_button(
         &mut cell,
         repeat_icon,
-        17.0,
+        16.0,
         repeat_color,
         if repeat == RepeatMode::Off {
             palette.text
@@ -895,17 +900,18 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
 /// What the right of the bar always holds, in points: the volume slider and
 /// its button, the devices, queue and lyrics buttons, and the gaps.
-const EXTRAS_WIDTH: f32 = 92.0 + 4.0 * (18.0 + theme::ICON_BUTTON_PAD) + 4.0 * 6.0 + 4.0;
+const EXTRAS_WIDTH: f32 = 92.0 + 4.0 * (16.0 + theme::ICON_BUTTON_PAD) + 4.0;
 
 /// Whether the full screen button has room beside the rest, keeping clear of
 /// the transport, with `room` points to the right of it.
 fn full_screen_button_fits(room: f32) -> bool {
-    room >= EXTRAS_WIDTH + 18.0 + theme::ICON_BUTTON_PAD + 6.0 + TRANSPORT_GAP
+    room >= EXTRAS_WIDTH + 16.0 + theme::ICON_BUTTON_PAD + TRANSPORT_GAP
 }
 
 fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_right: f32) {
     let palette = app.palette;
-    ui.spacing_mut().item_spacing.x = 6.0;
+    // Fork: Spotify's buttons stand side by side, 32 each.
+    ui.spacing_mut().item_spacing.x = 0.0;
     let volume = now
         .map(|now| now.volume_percent)
         .unwrap_or_else(|| crate::app::volume_to_percent(app.local.volume));
@@ -927,8 +933,24 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         } else {
             (Icon::Expand, gettext(app.locale, "Full screen lyrics"))
         };
-        if theme::icon_button(ui, icon, 18.0, palette.secondary, palette.text, &tip).clicked() {
+        if theme::icon_button(ui, icon, 16.0, palette.secondary, palette.text, &tip).clicked() {
             app.actions.push(Action::SetLyricsFullscreen(!inside));
+        }
+        // Fork: Spotify's Miniplayer sits left of Full screen.
+        if theme::icon_button(
+            ui,
+            Icon::PictureInPicture,
+            16.0,
+            palette.secondary,
+            palette.text,
+            &crate::ui::keys::platform_shortcut(
+                &gettext(app.locale, "Mini player (Ctrl+M)"),
+                &gettext(app.locale, "Mini player (Cmd+Shift+M)"),
+            ),
+        )
+        .clicked()
+        {
+            app.actions.push(Action::ToggleWinampWindow);
         }
     }
     let controls = ui.add_enabled_ui(adjustable, |ui| {
@@ -962,7 +984,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         if theme::icon_button(
             ui,
             volume_icon,
-            18.0,
+            16.0,
             palette.secondary,
             palette.text,
             &if shown == 0 {
@@ -997,7 +1019,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     let devices = theme::icon_button(
         ui,
         icon,
-        18.0,
+        16.0,
         if remote {
             palette.accent
         } else {
@@ -1016,7 +1038,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     let queue_button = theme::icon_button(
         ui,
         Icon::ListVideo,
-        18.0,
+        16.0,
         if queue_open {
             palette.accent
         } else {
@@ -1043,7 +1065,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     if theme::icon_button(
         ui,
         Icon::Disc,
-        18.0,
+        16.0,
         if app.show_now_playing_panel {
             palette.accent
         } else {
@@ -1059,7 +1081,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     if theme::icon_button(
         ui,
         Icon::Mic,
-        18.0,
+        16.0,
         if app.show_lyrics_panel {
             palette.accent
         } else {
@@ -1072,26 +1094,8 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }
-    // The Listening activity button is the first to go in a narrow window,
-    // so it never crowds the transport.
-    let left = ui.min_rect().left() - ui.spacing().item_spacing.x - (18.0 + theme::ICON_BUTTON_PAD);
-    if left - transport_right >= TRANSPORT_GAP
-        && theme::icon_button(
-            ui,
-            Icon::Users,
-            18.0,
-            if app.show_friends_panel {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-            palette.text,
-            &gettext(app.locale, "Listening activity"),
-        )
-        .clicked()
-    {
-        app.actions.push(Action::ToggleFriendsPanel);
-    }
+    // Fork: Friend Activity lives in the top bar, as Spotify's does.
+    let _ = transport_right;
 }
 
 #[cfg(test)]

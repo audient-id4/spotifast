@@ -516,7 +516,7 @@ impl Default for Settings {
             art_expanded: false,
             sidebar_compact: false,
             sidebar_grid: false,
-            sidebar_width: 250.0,
+            sidebar_width: 420.0,
             lyrics_width: 360.0,
             queue_width: 360.0,
             tracklist_compact: false,

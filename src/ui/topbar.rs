@@ -13,10 +13,11 @@ use crate::theme::{self, Icon, Palette};
 /// The gap the bar keeps between everything it lays out.
 const ITEM_SPACING: f32 = 8.0;
 /// The account avatar, and the icon in each of the three buttons beside it.
-const AVATAR_SIZE: f32 = 36.0;
-const ICON_BUTTON_ICON: f32 = 19.0;
+// Fork: Spotify's account button, 48 round around a 32 picture.
+const AVATAR_SIZE: f32 = 48.0;
+const ICON_BUTTON_ICON: f32 = 16.0;
 /// `theme::icon_button` pads its icon by 12 px.
-const ICON_BUTTON_SIZE: f32 = ICON_BUTTON_ICON + 12.0;
+const ICON_BUTTON_SIZE: f32 = ICON_BUTTON_ICON + theme::ICON_BUTTON_PAD;
 const SPINNER_SIZE: f32 = 15.0;
 /// A badge is as tall as its text plus this, and as wide as its text plus
 /// the padding its own label needs.
@@ -28,7 +29,8 @@ const UPDATE_BADGE_PADDING: f32 = 32.0;
 /// The width the search field aims for, the most it ever takes, and the
 /// least it shrinks to before the badges give up their labels instead.
 const SEARCH_IDEAL: f32 = 200.0;
-const SEARCH_MAX: f32 = 440.0;
+// Fork: Spotify's search field is 474 wide.
+const SEARCH_MAX: f32 = 474.0;
 const SEARCH_FLOOR: f32 = 130.0;
 // After the badges collapse, a right panel can leave less than 130 points.
 // Keep the original 80-point minimum inside the page's own toolbar.
@@ -87,7 +89,7 @@ struct TopbarFit {
 /// text, each already including the spacing that precedes it.
 fn topbar_fit(room: f32, controls: f32, labelled: f32, icons: f32) -> TopbarFit {
     // SEARCH_IDEAL is above SEARCH_FLOOR, so the clamp below is well ordered.
-    let ideal = (room * 0.5).clamp(SEARCH_IDEAL, SEARCH_MAX);
+    let ideal = (room * 0.7).clamp(SEARCH_IDEAL, SEARCH_MAX);
     let labels = room - controls - labelled >= SEARCH_FLOOR;
     let badges = if labels { labelled } else { icons };
     TopbarFit {
@@ -170,13 +172,8 @@ fn nav_button(
         },
     );
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tooltip));
+    // Fork: Spotify's desktop arrows are bare 16 glyphs in 32 buttons.
     if ui.is_rect_visible(rect) {
-        let fill = if palette.dark {
-            egui::Color32::from_black_alpha(90)
-        } else {
-            egui::Color32::from_black_alpha(20)
-        };
-        ui.painter().circle_filled(rect.center(), 16.0, fill);
         let color = if !enabled {
             palette.dim
         } else if response.hovered() || response.has_focus() {
@@ -184,7 +181,7 @@ fn nav_button(
         } else {
             palette.secondary
         };
-        theme::paint_icon(ui, icon, rect, 20.0, color);
+        theme::paint_icon(ui, icon, rect, 18.0, color);
     }
     theme::focus_ring(ui, &response);
     if enabled {
@@ -253,11 +250,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
                 ui.add_space(2.0);
             }
-            if !app.settings.sidebar_visible
-                && nav_button(ui, &palette, Icon::House, true, &gettext(locale, "Home")).clicked()
-            {
-                app.actions.push(Action::Open(Page::Home));
-            }
             if nav_button(
                 ui,
                 &palette,
@@ -284,9 +276,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // The badges sit at the right end but grow with their text, so
             // measure them here, before the search field takes its share.
-            let remote_now = app
-                .now_playing()
-                .filter(|now| !now.local && !app.targets_own_soloist());
+            // Fork: where playback is shows in the green strip under the
+            // player bar, as Spotify's, not here.
+            let remote_now = app.now_playing().filter(|_| false);
             let device_icon = remote_now
                 .as_ref()
                 .and_then(|now| now.device_kind.as_deref())
@@ -344,7 +336,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     0.0
                 };
 
-            let search_room = (ui.available_width() - window_controls.topbar_width).max(0.0);
+            // Fork: Home sits before the field, 48 and 8 apart.
+            let search_room =
+                (ui.available_width() - window_controls.topbar_width - 56.0).max(0.0);
             // What sits before the field: the page padding, the navigation
             // buttons, and any window buttons. The panels beside the page
             // keep room for it (`least_width`).
@@ -352,6 +346,47 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.ctx().data_mut(|data| data.insert_temp(lead_id(), lead));
             let fit = topbar_fit(search_room, controls, badges(true), badges(false));
             let search_width = fit.search;
+            // Fork: Home and the field, centred on the window as Spotify
+            // centres them, as far as the controls at the right allow.
+            {
+                let group = 48.0 + 8.0 + search_width;
+                let here = ui.cursor().min.x;
+                let room_after = ui.available_width()
+                    - window_controls.topbar_width
+                    - controls
+                    - badges(fit.labels)
+                    - group;
+                let start = (ui.max_rect().center().x - group / 2.0)
+                    .min(here + room_after.max(0.0));
+                if start > here {
+                    ui.add_space(start - here);
+                }
+                let on_home = matches!(app.page(), Page::Home);
+                let (rect, response) = ui.allocate_exact_size(Vec2::splat(48.0), Sense::click());
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, gettext(locale, "Home"))
+                });
+                if ui.is_rect_visible(rect) {
+                    let hovered = response.hovered() || response.has_focus();
+                    let fill = if hovered {
+                        palette.surface_hover
+                    } else {
+                        palette.surface
+                    };
+                    let grow = if hovered { 1.04 } else { 1.0 };
+                    ui.painter().circle_filled(rect.center(), 24.0 * grow, fill);
+                    let color = if on_home || hovered {
+                        palette.text
+                    } else {
+                        palette.secondary
+                    };
+                    theme::paint_icon(ui, Icon::House, rect, 24.0, color);
+                }
+                theme::focus_ring(ui, &response);
+                if response.on_hover_text(gettext(locale, "Home")).clicked() {
+                    app.actions.push(Action::Open(Page::Home));
+                }
+            }
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
             let selected = egui::TextEdit::load_state(ui.ctx(), id)
@@ -429,15 +464,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         palette.surface
                     };
-                    ui.painter().circle_filled(rect.center(), 18.0, fill);
-                    let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(28.0));
+                    ui.painter().circle_filled(rect.center(), AVATAR_SIZE / 2.0, fill);
+                    let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(32.0));
                     match avatar.as_deref() {
                         Some(url) => super::widgets::paint_cover(
                             ui,
                             &palette,
                             Some(url),
                             inner,
-                            14.0,
+                            16.0,
                             Icon::User,
                             Some(app.backend.art()),
                         ),
@@ -449,7 +484,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 .to_uppercase()
                                 .to_string();
                             ui.painter()
-                                .circle_filled(inner.center(), 14.0, palette.accent);
+                                .circle_filled(inner.center(), 16.0, palette.accent);
                             ui.painter().text(
                                 inner.center(),
                                 egui::Align2::CENTER_CENTER,
@@ -546,53 +581,41 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         "Spotifast is offline. Reconnecting automatically when connection returns.",
                     ));
                 }
-                ui.add_space(4.0);
+                // Fork: Spotify's pair beside the account: Friend Activity
+                // and What's New, 16 glyphs in 32 buttons, 8 apart.
+                ui.add_space(8.0);
                 if theme::icon_button(
                     ui,
-                    Icon::Settings,
+                    Icon::Users,
                     ICON_BUTTON_ICON,
-                    palette.secondary,
+                    if app.show_friends_panel {
+                        palette.text
+                    } else {
+                        palette.secondary
+                    },
                     palette.text,
-                    &gettext(locale, "Settings"),
+                    &gettext(locale, "Friend Activity"),
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::Open(Page::Settings));
+                    app.actions.push(Action::ToggleFriendsPanel);
                 }
-                if app.visualizers_available()
-                    && theme::icon_button(
-                        ui,
-                        Icon::AudioLines,
-                        ICON_BUTTON_ICON,
-                        if app.settings.milkdrop_open {
-                            palette.accent
-                        } else {
-                            palette.secondary
-                        },
-                        palette.text,
-                        super::keys::platform_shortcut(
-                            &gettext(locale, "MilkDrop visualiser (Ctrl+Shift+K)"),
-                            &gettext(locale, "MilkDrop visualiser (Cmd+Shift+K)"),
-                        ),
-                    )
-                    .clicked()
-                {
-                    app.actions.push(Action::ToggleWinampMilkdrop);
-                }
+                ui.add_space(8.0);
                 if theme::icon_button(
                     ui,
-                    Icon::Shrink,
+                    Icon::Bell,
                     ICON_BUTTON_ICON,
-                    palette.secondary,
+                    if matches!(app.page(), Page::NewReleases) {
+                        palette.text
+                    } else {
+                        palette.secondary
+                    },
                     palette.text,
-                    super::keys::platform_shortcut(
-                        &gettext(locale, "Mini player (Ctrl+M)"),
-                        &gettext(locale, "Mini player (Cmd+Shift+M)"),
-                    ),
+                    &gettext(locale, "What's New"),
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::ToggleWinampWindow);
+                    app.actions.push(Action::Open(Page::NewReleases));
                 }
                 // A quiet spinner once the app has been at something in the
                 // background for a while, long enough that fast requests
@@ -688,8 +711,9 @@ mod topbar_fit_tests {
         assert_eq!(fit.search, SEARCH_MAX);
         assert!(fit.labels);
         // Half the room, as before, while half still fits.
-        let fit = topbar_fit(700.0, RIGHT_CONTROLS_WIDTH, 0.0, 0.0);
-        assert_eq!(fit.search, 350.0);
+        // Fork: seven tenths of the room, toward Spotify's 474.
+        let fit = topbar_fit(600.0, RIGHT_CONTROLS_WIDTH, 0.0, 0.0);
+        assert_eq!(fit.search, (600.0 - RIGHT_CONTROLS_WIDTH).min(420.0));
     }
 
     #[test]

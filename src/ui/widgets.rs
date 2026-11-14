@@ -1673,10 +1673,35 @@ fn plays_fit(width: f32) -> bool {
     width > 560.0
 }
 
+/// Fork: Spotify's grid. After the number and the fixed right end, the
+/// title takes two parts and the album and the date one part each; without
+/// a date the album takes a third. Rows and the header share it.
+fn flex_columns(width: f32, album: bool, added: bool, plays: f32) -> (f32, f32) {
+    let medium = width > 560.0;
+    let wide = width > 760.0;
+    let flex = (width - 44.0 - 136.0 - plays).max(0.0);
+    let added = added && wide;
+    let album = if album && medium {
+        (if added { flex * 0.25 } else { flex / 3.0 }).clamp(140.0, 640.0)
+    } else {
+        0.0
+    };
+    let added = if added {
+        (flex * 0.25).clamp(120.0, 400.0)
+    } else {
+        0.0
+    };
+    (album, added)
+}
+
 fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     let extra_wide = width > 920.0;
-    let wide = width > 760.0;
-    let medium = width > 560.0;
+    let plays = if row.show_plays && !row.compact && plays_fit(width) {
+        PLAYS_WIDTH
+    } else {
+        0.0
+    };
+    let (album, added) = flex_columns(width, row.show_album, row.added_at.is_some(), plays);
     Columns {
         number: if row.compact { 0.0 } else { 44.0 },
         cover: if row.show_cover {
@@ -1684,26 +1709,14 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         } else {
             0.0
         },
-        album: if row.show_album && medium {
-            (width * 0.28).clamp(140.0, 360.0)
-        } else {
-            0.0
-        },
+        album,
         added_by: if row.show_added_by && extra_wide {
             130.0
         } else {
             0.0
         },
-        added: if row.added_at.is_some() && wide {
-            120.0
-        } else {
-            0.0
-        },
-        plays: if row.show_plays && !row.compact && plays_fit(width) {
-            PLAYS_WIDTH
-        } else {
-            0.0
-        },
+        added,
+        plays,
         heart: if row.compact { 0.0 } else { 36.0 },
         duration: if row.compact { 44.0 } else { 56.0 },
         more: if row.compact { 0.0 } else { 36.0 },
@@ -2247,8 +2260,11 @@ fn track_row_contents(
                     .max_rect(heart_rect)
                     .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
             );
+            // Fork: Liked Songs holds only saved songs, so Spotify shows
+            // their check on hover alone.
+            let liked_list = matches!(row.context, RowContext::Context { uri, .. } | RowContext::View { context_uri: uri, .. } if uri.ends_with(":collection"));
             if !hovered
-                && saved != Some(true)
+                && (saved != Some(true) || liked_list)
                 && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
             {
                 child.set_opacity(0.0);
@@ -2264,10 +2280,10 @@ fn track_row_contents(
                 };
                 child
                     .painter()
-                    .circle_filled(heart_rect.center(), 8.5, disc);
-                (Icon::Check, Color32::from_gray(10), Color32::BLACK, 11.0)
+                    .circle_filled(heart_rect.center(), 8.0, disc);
+                (Icon::Check, Color32::from_gray(10), Color32::BLACK, 10.0)
             } else {
-                (Icon::CirclePlus, palette.secondary, palette.text, 17.0)
+                (Icon::CirclePlus, palette.secondary, palette.text, 16.0)
             };
             let tooltip = if saved == Some(true) {
                 gettext(app.locale, "Add to playlist")
@@ -2572,11 +2588,21 @@ pub fn table_header(
 ) -> Option<crate::model::SortColumn> {
     use crate::model::SortColumn;
     let width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
-    let font = theme::regular(12.0);
+    // Fork: Spotify's header row, 36 tall, 14px, headings in sentence case.
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 36.0), Sense::hover());
+    let font = theme::regular(14.0);
     let color = palette.secondary;
     let mut clicked = None;
     let mut heading = |ui: &mut Ui, x: f32, text: &str, column: SortColumn| {
+        let sentence = {
+            let lower = text.to_lowercase();
+            let mut chars = lower.chars();
+            chars
+                .next()
+                .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                .unwrap_or_default()
+        };
+        let text = sentence.as_str();
         let active = sort.filter(|sort| sort.column == column);
         let galley =
             ui.painter()
@@ -2637,7 +2663,8 @@ pub fn table_header(
         let number = Rect::from_center_size(pos2(x + 22.0, rect.center().y), vec2(30.0, 22.0));
         // With no sort chosen the list already plays its own order, and
         // the # says so: lit, arrow pointing down the list.
-        let natural = sort.is_none();
+        // Fork: Spotify leaves the # plain in the list's own order.
+        let natural = false;
         let active = sort.filter(|sort| sort.column == SortColumn::Index);
         let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
         response.widget_info(|| {
@@ -2686,23 +2713,20 @@ pub fn table_header(
         }
     }
     x += 44.0;
-    if show_cover {
-        x += 52.0;
-    }
+    // Fork: Spotify's Title heading stands over the cover.
+    let _ = show_cover;
     heading(
         ui,
         x,
         &pgettext(locale, "column heading", "TITLE"),
         SortColumn::Title,
     );
-    let medium = width > 560.0;
-    let wide = width > 760.0;
-    let album_width = if show_album && medium {
-        (width * 0.28).clamp(140.0, 360.0)
+    let header_plays = if show_plays && plays_fit(width) {
+        PLAYS_WIDTH
     } else {
         0.0
     };
-    let added_width = if show_added && wide { 120.0 } else { 0.0 };
+    let (album_width, added_width) = flex_columns(width, show_album, show_added, header_plays);
     let extra_wide = width > 920.0;
     let added_by_width = if show_added_by && extra_wide {
         130.0
@@ -3761,10 +3785,13 @@ pub fn search_field(
     hint: &str,
     width: f32,
 ) -> egui::Response {
-    let height = 34.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    // Fork: Spotify's search, 48 tall: the glass at 24, the words 48 in,
+    // a hover lift with a hairline and a white ring while typing.
+    let height = 48.0;
+    let (rect, area) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let has_focus = ui.memory(|memory| memory.has_focus(id));
-    let fill = if has_focus {
+    let hovered = area.hovered();
+    let fill = if has_focus || hovered {
         palette.surface_hover
     } else {
         palette.surface
@@ -3774,18 +3801,47 @@ pub fn search_field(
         ui.painter().rect_stroke(
             rect,
             height / 2.0,
-            Stroke::new(1.5, palette.text.gamma_multiply(0.6)),
+            Stroke::new(2.0, palette.text),
+            egui::StrokeKind::Inside,
+        );
+    } else if hovered {
+        ui.painter().rect_stroke(
+            rect,
+            height / 2.0,
+            Stroke::new(1.0, palette.surface_active),
             egui::StrokeKind::Inside,
         );
     }
     let icon_rect =
-        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0));
+        Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(24.0));
     Icon::Search
-        .image(palette.secondary, 16.0)
+        .image(
+            if has_focus || hovered {
+                palette.text
+            } else {
+                palette.secondary
+            },
+            24.0,
+        )
         .paint_at(ui, icon_rect);
+    // Browse at the right end, after a thin divider, as Spotify has it.
+    if text.is_empty() && width > 220.0 {
+        let browse =
+            Rect::from_center_size(pos2(rect.right() - 28.0, rect.center().y), Vec2::splat(24.0));
+        ui.painter().line_segment(
+            [
+                pos2(browse.left() - 12.0, rect.center().y - 12.0),
+                pos2(browse.left() - 12.0, rect.center().y + 12.0),
+            ],
+            Stroke::new(1.0, palette.dim),
+        );
+        Icon::LayoutGrid
+            .image(palette.secondary, 22.0)
+            .paint_at(ui, browse);
+    }
     let field_rect = Rect::from_min_max(
-        pos2(rect.left() + 34.0, rect.top() + 1.0),
-        pos2(rect.right() - 30.0, rect.bottom() - 1.0),
+        pos2(rect.left() + 48.0, rect.top() + 1.0),
+        pos2(rect.right() - 64.0, rect.bottom() - 1.0),
     );
     let mut child = ui.new_child(
         UiBuilder::new()
@@ -3800,7 +3856,7 @@ pub fn search_field(
             .painter()
             .layout_job(egui::text::LayoutJob::simple_singleline(
                 buffer.as_str().to_owned(),
-                theme::regular(14.0),
+                theme::regular(16.0),
                 text_color,
             ));
         crate::bidi::reorder(&mut galley);
@@ -3811,8 +3867,8 @@ pub fn search_field(
         locale,
         egui::TextEdit::singleline(text)
             .id(id)
-            .hint_text(egui::RichText::new(hint).color(palette.dim))
-            .font(theme::regular(14.0))
+            .hint_text(egui::RichText::new(hint).color(palette.secondary))
+            .font(theme::regular(16.0))
             .text_color(palette.text)
             .frame(egui::Frame::NONE)
             .desired_width(field_rect.width())

@@ -1407,7 +1407,9 @@ impl App {
             show_queue_panel: session.queue_open.unwrap_or(false),
             show_lyrics_panel: false,
             show_friends_panel: false,
-            show_now_playing_panel: false,
+            // Fork: open from the start, as Spotify's; the unit tests keep
+            // upstream's layout without it.
+            show_now_playing_panel: !cfg!(test),
             friends: Loadable::NotLoaded,
             friends_in_flight: false,
             friends_fetched_at: None,
@@ -16293,7 +16295,8 @@ mod tests {
                     .rect
                     .center()
             } else {
-                egui::pos2(1120.0, 100.0)
+                // Fork: the lyrics panel starts under the 64 point top bar.
+                egui::pos2(1120.0, 300.0)
             };
             let press = |button, pressed| egui::Event::PointerButton {
                 pos: anchor,

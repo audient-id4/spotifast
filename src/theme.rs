@@ -40,24 +40,26 @@ pub struct Palette {
 
 impl Palette {
     pub fn dark() -> Self {
+        // Fork: Spotify's dark colours, as measured in
+        // fork/spotify-ui-spec.md.
         Self {
             dark: true,
-            window: Color32::from_rgb(0x0f, 0x11, 0x14),
-            panel: Color32::from_rgb(0x15, 0x18, 0x1c),
-            surface: Color32::from_rgb(0x1d, 0x21, 0x27),
-            surface_hover: Color32::from_rgb(0x26, 0x2b, 0x33),
-            surface_active: Color32::from_rgb(0x2f, 0x35, 0x3f),
-            outline: Color32::from_rgb(0x2a, 0x30, 0x38),
-            text: Color32::from_rgb(0xf2, 0xf4, 0xf6),
-            secondary: Color32::from_rgb(0xa9, 0xb1, 0xbc),
-            dim: Color32::from_rgb(0x6e, 0x77, 0x84),
+            window: Color32::from_rgb(0x00, 0x00, 0x00),
+            panel: Color32::from_rgb(0x12, 0x12, 0x12),
+            surface: Color32::from_rgb(0x1f, 0x1f, 0x1f),
+            surface_hover: Color32::from_rgb(0x2a, 0x2a, 0x2a),
+            surface_active: Color32::from_rgb(0x33, 0x33, 0x33),
+            outline: Color32::from_rgb(0x29, 0x29, 0x29),
+            text: Color32::from_rgb(0xff, 0xff, 0xff),
+            secondary: Color32::from_rgb(0xb3, 0xb3, 0xb3),
+            dim: Color32::from_rgb(0x7c, 0x7c, 0x7c),
             accent: Color32::from_rgb(0x1e, 0xd7, 0x60),
-            accent_hover: Color32::from_rgb(0x3c, 0xe8, 0x7a),
-            on_accent: Color32::from_rgb(0x0a, 0x14, 0x0e),
-            danger: Color32::from_rgb(0xf5, 0x71, 0x7f),
-            warning: Color32::from_rgb(0xf2, 0xb8, 0x5c),
-            overlay: Color32::from_rgb(0x22, 0x27, 0x2e),
-            shadow: Color32::from_black_alpha(140),
+            accent_hover: Color32::from_rgb(0x3b, 0xe4, 0x77),
+            on_accent: Color32::from_rgb(0x00, 0x00, 0x00),
+            danger: Color32::from_rgb(0xf1, 0x5e, 0x6c),
+            warning: Color32::from_rgb(0xff, 0xa4, 0x2b),
+            overlay: Color32::from_rgb(0x28, 0x28, 0x28),
+            shadow: Color32::from_black_alpha(160),
             tint: Color32::TRANSPARENT,
         }
     }
@@ -239,13 +241,13 @@ pub const ROW_HEIGHT: f32 = 56.0;
 pub const COMPACT_ROW_HEIGHT: f32 = 48.0;
 /// The compact track list: one line, no cover.
 pub const THIN_ROW_HEIGHT: f32 = 36.0;
-pub const PLAYER_BAR_HEIGHT: f32 = 88.0;
+pub const PLAYER_BAR_HEIGHT: f32 = 80.0;
 /// The narrowest either right-hand panel goes. The queue and the lyrics
 /// take the same edge and swap places there, so a width that suits one
 /// has to suit the other, or the window would jump on the swap.
 pub const SIDE_PANEL_MIN_WIDTH: f32 = 280.0;
-pub const TOP_BAR_HEIGHT: f32 = 56.0;
-pub const CUSTOM_TOP_BAR_HEIGHT: f32 = 48.0;
+pub const TOP_BAR_HEIGHT: f32 = 64.0;
+pub const CUSTOM_TOP_BAR_HEIGHT: f32 = 64.0;
 
 /// Keep the custom Windows header close to its 36-point caption controls.
 /// Linux's custom title bar keeps the ordinary height.
@@ -450,6 +452,7 @@ fastframe_icons::icons! {
         ArrowRight => "arrow-right",
         AudioLines => "audio-lines",
         BadgeCheck => "badge-check",
+        Bell => "bell",
         Bookmark => "bookmark",
         BookmarkFilled => "bookmark-filled",
         Car => "car",
@@ -460,6 +463,7 @@ fastframe_icons::icons! {
         ChevronRight => lucide "chevron-right",
         ChevronUp => lucide "chevron-up",
         CircleAlert => lucide "circle-alert",
+        CircleArrowDown => "circle-arrow-down",
         CircleCheck => lucide "circle-check",
         CirclePlay => "circle-play",
         CirclePlus => "circle-plus",
@@ -500,6 +504,7 @@ fastframe_icons::icons! {
         Pause => lucide "pause",
         PauseFilled => "pause-filled",
         PanelLeft => lucide "panel-left",
+        PictureInPicture => "picture-in-picture-2",
         Pin => lucide "pin",
         PinOff => lucide "pin-off",
         Pencil => lucide "pencil",
@@ -574,7 +579,8 @@ pub fn focus_ring(ui: &egui::Ui, response: &Response) {
 /// caller that places an icon button inside a fixed box must give the box
 /// at least `size + ICON_BUTTON_PAD`: in a tighter one, egui clamps the
 /// centered layout to the box's top edge and the glyph lands off-center.
-pub const ICON_BUTTON_PAD: f32 = 12.0;
+/// Fork: Spotify's icon buttons are 32 around a 16 glyph.
+pub const ICON_BUTTON_PAD: f32 = 16.0;
 
 /// A frameless icon control whose colour lifts on hover.
 pub fn icon_button(
@@ -671,11 +677,17 @@ pub fn circle_button(
     });
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
-        let grow = if hovered { 1.05 } else { 1.0 };
+        let grow = if hovered { 1.04 } else { 1.0 };
         let radius = diameter / 2.0 * grow;
         let fill = if hovered { fill_hover } else { fill };
         ui.painter().circle_filled(rect.center(), radius, fill);
-        let icon_size = diameter * 0.46;
+        // Fork: Spotify's glyph is half a small disc (16 in 32) and 24 in
+        // the 56 play button.
+        let icon_size = if diameter <= 40.0 {
+            diameter * 0.5
+        } else {
+            diameter * 0.43
+        };
         let offset = play_glyph_offset(icon, icon_size);
         let icon_rect =
             egui::Rect::from_center_size(rect.center() + offset, Vec2::splat(icon_size));
@@ -723,15 +735,16 @@ pub fn circle_spinner(
 
 /// A pill-shaped text button: filled for the primary action, outlined otherwise.
 pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: bool) -> Response {
-    let font = semibold(13.0);
+    // Fork: Spotify's outline pill, 32 tall, 16 inset, 14px bold.
+    let font = bold(14.0);
     let color = if primary {
         palette.on_accent
     } else {
         palette.text
     };
     let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
-    let padding = Vec2::new(18.0, 8.0);
-    let size = galley.size() + padding * 2.0;
+    let padding = Vec2::new(16.0, (32.0 - galley.size().y) / 2.0);
+    let size = Vec2::new(galley.size().x + padding.x * 2.0, 32.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -787,7 +800,7 @@ pub fn soft_button_dismiss(
 /// The width `soft_button` gives a button without an icon, for laying out
 /// a row of them before drawing it.
 pub fn soft_button_width(ui: &egui::Ui, label: &str) -> f32 {
-    let galley = crate::bidi::layout_line(ui.painter(), label, medium(13.0), Color32::WHITE);
+    let galley = crate::bidi::layout_line(ui.painter(), label, regular(14.0), Color32::WHITE);
     galley.size().x + 24.0
 }
 
@@ -799,13 +812,14 @@ fn soft_button_inner(
     active: bool,
     dismissible: bool,
 ) -> (Response, bool) {
-    let font = medium(13.0);
+    // Fork: Spotify's chip, 32 tall, 12 inset, 14px regular.
+    let font = regular(14.0);
     let color = if active { palette.window } else { palette.text };
     let galley = crate::bidi::layout_line(ui.painter(), label, font, color);
     let icon_size = 15.0;
     let icon_width = if icon.is_some() { icon_size + 6.0 } else { 0.0 };
-    let padding = Vec2::new(12.0, 7.0);
-    let size = Vec2::new(galley.size().x + icon_width, galley.size().y) + padding * 2.0;
+    let padding = Vec2::new(12.0, (32.0 - galley.size().y) / 2.0);
+    let size = Vec2::new(galley.size().x + icon_width + padding.x * 2.0, 32.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -839,9 +853,9 @@ fn soft_button_inner(
         let fill = if active {
             palette.text
         } else if hovered {
-            palette.surface_hover
+            palette.surface_active
         } else {
-            palette.surface
+            palette.surface_hover
         };
         ui.painter().rect_filled(rect, rect.height() / 2.0, fill);
         let mut x = rect.left() + padding.x;

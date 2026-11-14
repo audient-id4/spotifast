@@ -51,7 +51,7 @@ pub(super) struct HeroImages<'a> {
 }
 
 /// The larger of the hero's two cover sizes.
-const HERO_ART: f32 = 212.0;
+const HERO_ART: f32 = 232.0;
 
 /// The artwork widths a page header asks for on this display: its own
 /// cover, and the card's, which the page was likely opened from and so is
@@ -137,7 +137,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                 }));
             }
         }
-        let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
+        let radius = if hero.round { cover_size / 2.0 } else { 4.0 };
         widgets::paint_shadow(ui, &palette, rect, radius);
         if hero.liked {
             super::sidebar::liked_cover(ui, rect, radius);
@@ -161,21 +161,31 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         ui.vertical(|ui| {
             let width = ui.available_width();
             ui.set_width(width);
-            ui.spacing_mut().item_spacing.y = 6.0;
-            ui.add_space(cover_size * 0.08);
-            theme::text(ui, hero.kind.as_ref(), theme::medium(12.5), palette.text);
-            let mut size = if cover_size > 200.0 { 56.0 } else { 40.0 };
-            loop {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            // Fork: Spotify's header: the kind in 14px, the title from 96
+            // down to fit, the byline in 14px, the block resting on the
+            // cover's foot.
+            // Inter runs about a tenth wider than Spotify's face: 88 here
+            // fills the width 96 does there.
+            let mut size = if cover_size > 200.0 { 88.0 } else { 48.0 };
+            let title_height = loop {
                 let galley = ui.painter().layout_no_wrap(
                     hero.title.to_string(),
                     theme::bold(size),
                     palette.text,
                 );
-                if galley.size().x <= width || size <= 22.0 {
-                    break;
+                if galley.size().x <= width || size <= 32.0 {
+                    break galley.size().y;
                 }
-                size -= 6.0;
-            }
+                size -= 8.0;
+            };
+            let described = hero
+                .description
+                .as_ref()
+                .is_some_and(|description| !description.is_empty());
+            let block = 20.0 + title_height + if described { 24.0 } else { 0.0 } + 24.0 + 12.0;
+            ui.add_space((cover_size - block).max(0.0));
+            theme::text(ui, hero.kind.as_ref(), theme::regular(14.0), palette.text);
             theme::text(ui, hero.title, theme::bold(size), palette.text);
             if let Some(description) = &hero.description
                 && !description.is_empty()
@@ -185,7 +195,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
                 if let Some(avatar) = &hero.avatar {
-                    let size = 18.0;
+                    let size = 24.0;
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
                     let url = match avatar {
                         Avatar::Placeholder => None,
@@ -203,18 +213,21 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                 }
                 for (index, (text, page)) in hero.byline.iter().enumerate() {
                     if index > 0 {
-                        theme::text(ui, "•", theme::regular(13.5), palette.secondary);
+                        theme::text(ui, "•", theme::regular(14.0), palette.secondary);
                     }
                     let response = match page {
                         Some(page) => {
                             let response =
-                                theme::link(ui, text, theme::semibold(13.5), palette.text);
+                                theme::link(ui, text, theme::bold(14.0), palette.text);
                             if response.clicked() {
                                 app.actions.push(Action::Open(page.clone()));
                             }
                             response
                         }
-                        None => theme::text(ui, text, theme::regular(13.5), palette.secondary),
+                        None if index == 0 => {
+                            theme::text(ui, text, theme::bold(14.0), palette.text)
+                        }
+                        None => theme::text(ui, text, theme::regular(14.0), palette.secondary),
                     };
                     if let Some((at, tooltip)) = &hero.byline_tooltip
                         && *at == index
@@ -225,7 +238,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             });
         });
     });
-    ui.add_space(20.0);
+    ui.add_space(24.0);
 }
 
 /// A description on one line, its links clickable as in Spotify: a Spotify
@@ -507,19 +520,119 @@ pub fn actions_row(
         }
         if let Some(filter) = filter {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                widgets::search_field(
-                    ui,
-                    &palette,
-                    locale,
-                    egui::Id::new(("collection-filter", actions.name)),
-                    filter,
-                    &gettext(locale, "Filter"),
-                    220.0,
+                ui.spacing_mut().item_spacing.x = 8.0;
+                // Fork: Spotify's view switch, the view's name in 14px and
+                // a list glyph, choosing List or Compact.
+                let compact = app.settings.tracklist_compact;
+                let label = if compact {
+                    gettext(locale, "Compact")
+                } else {
+                    gettext(locale, "List")
+                };
+                let galley = ui.painter().layout_no_wrap(
+                    label.to_string(),
+                    theme::regular(14.0),
+                    palette.secondary,
                 );
+                let (rect, view) = ui.allocate_exact_size(
+                    vec2(galley.size().x + 8.0 + 16.0 + 12.0, 32.0),
+                    Sense::click(),
+                );
+                let color = if view.hovered() {
+                    palette.text
+                } else {
+                    palette.secondary
+                };
+                ui.painter().galley(
+                    pos2(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0),
+                    galley,
+                    color,
+                );
+                Icon::LayoutList.image(color, 16.0).paint_at(
+                    ui,
+                    Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), Vec2::splat(16.0)),
+                );
+                egui::Popup::menu(&view)
+                    .frame(widgets::menu_frame(&palette))
+                    .show(|ui| {
+                        ui.set_width(160.0);
+                        for (choice, text) in [
+                            (true, gettext(locale, "Compact")),
+                            (false, gettext(locale, "List")),
+                        ] {
+                            if widgets::menu_item(
+                                ui,
+                                &palette,
+                                (choice == compact).then_some(Icon::Check),
+                                &text,
+                            ) {
+                                app.settings.tracklist_compact = choice;
+                                app.actions.push(Action::SettingsChanged);
+                            }
+                        }
+                    });
+                // The glass opens the search field; a query keeps it open.
+                let id = egui::Id::new(("collection-filter", actions.name));
+                let open_id = id.with("open");
+                let open = !filter.is_empty()
+                    || ui.data(|data| data.get_temp::<bool>(open_id)).unwrap_or(false);
+                if open {
+                    let field = playlist_search(ui, &palette, locale, id, filter);
+                    if field.lost_focus() && filter.is_empty() {
+                        ui.data_mut(|data| data.insert_temp(open_id, false));
+                    }
+                } else if theme::icon_button(
+                    ui,
+                    Icon::Search,
+                    16.0,
+                    palette.secondary,
+                    palette.text,
+                    &gettext(locale, "Search in playlist"),
+                )
+                .clicked()
+                {
+                    ui.data_mut(|data| data.insert_temp(open_id, true));
+                    ui.memory_mut(|memory| memory.request_focus(id));
+                }
             });
         }
     });
     ui.add_space(14.0);
+}
+
+/// Fork: Spotify's search in a playlist: a 32 tall field, square-ish, the
+/// glass inside at the left.
+fn playlist_search(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    locale: Locale,
+    id: egui::Id,
+    text: &mut String,
+) -> egui::Response {
+    let (rect, _) = ui.allocate_exact_size(vec2(220.0, 32.0), Sense::hover());
+    ui.painter().rect_filled(rect, 4.0, palette.surface_hover);
+    Icon::Search.image(palette.secondary, 16.0).paint_at(
+        ui,
+        Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0)),
+    );
+    let field = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top()), pos2(rect.right() - 8.0, rect.bottom()));
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(field)
+            .layout(Layout::left_to_right(Align::Center)),
+    );
+    widgets::text_edit(
+        &mut child,
+        locale,
+        egui::TextEdit::singleline(text)
+            .id(id)
+            .hint_text(egui::RichText::new(gettext(locale, "Search in playlist")).color(palette.secondary))
+            .font(theme::regular(14.0))
+            .text_color(palette.text)
+            .frame(egui::Frame::NONE)
+            .desired_width(field.width())
+            .vertical_align(Align::Center),
+    )
 }
 
 /// A page's **Refresh** menu item, which reloads it from Spotify. It reads
