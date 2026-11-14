@@ -422,7 +422,9 @@ fn eased_fill(ctx: &egui::Context, panel: Color32, tint: Option<Color32>) -> Col
 fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option<&NowPlaying>) {
     let palette = app.palette;
     let cy = region.center().y;
-    let cover_rect = Rect::from_min_size(pos2(region.left() + 4.0, cy - 28.0), Vec2::splat(56.0));
+    // Fork: 8 from the window's edge, as from the bar's top and bottom; the
+    // bar's frame keeps 16 on each side.
+    let cover_rect = Rect::from_min_size(pos2(region.left() - 8.0, cy - 28.0), Vec2::splat(56.0));
 
     let Some(now) = now else {
         super::widgets::paint_cover(ui, &palette, None, cover_rect, 6.0, Icon::Music, None);
@@ -508,7 +510,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
-    let text_left = cover_rect.right() + 12.0;
+    let text_left = cover_rect.right() + 14.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
     let displayed_text_width: f32 = {
         let title =
