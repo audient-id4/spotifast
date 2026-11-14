@@ -57,33 +57,102 @@ fn quota_pause(strikes: u32, retry_after: Option<Duration>) -> Duration {
     )
 }
 
-/// Fork: the saved pause as (unix seconds it ends, strikes in a row).
-fn load_quota_pause() -> Option<(Instant, u32)> {
-    let text = std::fs::read_to_string(QUOTA_FILE.get()?).ok()?;
-    let (until, strikes) = text.trim().split_once(' ')?;
-    let until: u64 = until.parse().ok()?;
-    let now = std::time::SystemTime::now()
+/// Fork: the endpoint a path belongs to, with IDs folded, so
+/// `/tracks/abc` and `/tracks/def` count and pause together.
+fn endpoint_key(path: &str) -> String {
+    let path = path.strip_prefix(BASE_URL).unwrap_or(path);
+    path.split('?')
+        .next()
+        .unwrap_or(path)
+        .split('/')
+        .map(|part| {
+            if part.len() == 22 && part.chars().all(|c| c.is_ascii_alphanumeric()) {
+                "{id}"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
-    let left = Duration::from_secs(until.checked_sub(now)?);
-    Some((Instant::now() + left, strikes.parse().ok()?))
+        .map_or(0, |since| since.as_secs())
 }
 
-fn save_quota_pause(pause: Duration, strikes: u32) {
-    let Some(path) = QUOTA_FILE.get() else {
-        return;
-    };
-    let until = std::time::SystemTime::now() + pause;
-    let Ok(until) = until.duration_since(std::time::UNIX_EPOCH) else {
-        return;
-    };
-    let _ = std::fs::write(path, format!("{} {strikes}", until.as_secs()));
+/// Fork: quota pauses by endpoint. Spotify groups endpoints into quota
+/// buckets and a used-up bucket leaves the others working, so one endpoint
+/// reporting QUOTA_EXCEEDED pauses only itself (another endpoint of the same
+/// bucket pauses on its own first report). Kept on disk as
+/// `<unix end> <strikes> <endpoint>` lines.
+#[derive(Default)]
+struct QuotaPauses {
+    by_endpoint: std::collections::HashMap<String, (u64, u32)>,
 }
 
-fn clear_quota_pause() {
-    if let Some(path) = QUOTA_FILE.get() {
-        let _ = std::fs::remove_file(path);
+impl QuotaPauses {
+    fn load() -> Self {
+        let mut pauses = Self::default();
+        let Some(text) = QUOTA_FILE
+            .get()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+        else {
+            return pauses;
+        };
+        for line in text.lines() {
+            let mut parts = line.splitn(3, ' ');
+            if let (Some(until), Some(strikes), Some(key)) =
+                (parts.next(), parts.next(), parts.next())
+                && let (Ok(until), Ok(strikes)) = (until.parse(), strikes.parse())
+            {
+                pauses.by_endpoint.insert(key.to_string(), (until, strikes));
+            }
+        }
+        pauses
+    }
+
+    fn save(&self) {
+        let Some(path) = QUOTA_FILE.get() else {
+            return;
+        };
+        if self.by_endpoint.is_empty() {
+            let _ = std::fs::remove_file(path);
+            return;
+        }
+        let text: String = self
+            .by_endpoint
+            .iter()
+            .map(|(key, (until, strikes))| format!("{until} {strikes} {key}\n"))
+            .collect();
+        let _ = std::fs::write(path, text);
+    }
+
+    /// Whether `key` is still paused at `now` (unix seconds).
+    fn blocked(&self, key: &str, now: u64) -> bool {
+        self.by_endpoint
+            .get(key)
+            .is_some_and(|(until, _)| *until > now)
+    }
+
+    /// Records a quota report for `key`; returns the pause and the strikes.
+    fn strike(&mut self, key: &str, now: u64, retry_after: Option<Duration>) -> (Duration, u32) {
+        let strikes = self.by_endpoint.get(key).map_or(0, |(_, strikes)| *strikes) + 1;
+        let pause = quota_pause(strikes, retry_after);
+        self.by_endpoint
+            .insert(key.to_string(), (now + pause.as_secs(), strikes));
+        self.save();
+        (pause, strikes)
+    }
+
+    /// A success on `key` ends its pause; true when there was one.
+    fn clear(&mut self, key: &str) -> bool {
+        let had = self.by_endpoint.remove(key).is_some();
+        if had {
+            self.save();
+        }
+        had
     }
 }
 
@@ -104,20 +173,7 @@ struct Budget {
 impl Budget {
     /// Counts one request for `path`; every 30 seconds logs the busiest paths.
     fn note(&mut self, path: &str) {
-        let key: String = path
-            .split('?')
-            .next()
-            .unwrap_or(path)
-            .split('/')
-            .map(|part| {
-                if part.len() == 22 && part.chars().all(|c| c.is_ascii_alphanumeric()) {
-                    "{id}"
-                } else {
-                    part
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("/");
+        let key = endpoint_key(path);
         *self.tally.entry(key).or_default() += 1;
         self.hour += 1;
         let hour_since = *self.hour_since.get_or_insert_with(Instant::now);
@@ -523,9 +579,7 @@ pub struct ApiClient {
     partner_cooldown_until: tokio::sync::Mutex<Instant>,
     /// Fork: the request budget and the pause after the quota ran out.
     budget: Mutex<Budget>,
-    quota_until: Mutex<Option<Instant>>,
-    /// Fork: quota reports in a row, without a successful request between.
-    quota_strikes: std::sync::atomic::AtomicU32,
+    quota: Mutex<QuotaPauses>,
     search_limit: u32,
     artist_albums_limit: u32,
     source: ApiSource,
@@ -552,10 +606,7 @@ impl ApiClient {
             cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             partner_cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             budget: Mutex::new(Budget::default()),
-            quota_until: Mutex::new(load_quota_pause().map(|(until, _)| until)),
-            quota_strikes: std::sync::atomic::AtomicU32::new(
-                load_quota_pause().map_or(0, |(_, strikes)| strikes),
-            ),
+            quota: Mutex::new(QuotaPauses::load()),
             search_limit,
             artist_albums_limit,
             source,
@@ -669,16 +720,16 @@ impl ApiClient {
 
     /// Fork: fails at once while the quota pause lasts, then waits until the
     /// request budget has room.
-    async fn wait_for_budget(&self, read: bool) -> Result<()> {
+    async fn wait_for_budget(&self, endpoint: &str, read: bool) -> Result<()> {
         let started = Instant::now();
         loop {
+            if self
+                .quota
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .blocked(endpoint, unix_now())
             {
-                let mut quota = self.quota_until.lock().unwrap_or_else(|p| p.into_inner());
-                match *quota {
-                    Some(until) if until > Instant::now() => return Err(ApiError::QuotaExhausted),
-                    Some(_) => *quota = None,
-                    None => {}
-                }
+                return Err(ApiError::QuotaExhausted);
             }
             if !read {
                 return Ok(());
@@ -745,6 +796,7 @@ impl ApiClient {
         // alive for that whole wait, not only while bytes are on the wire.
         let _activity = ActivityGuard::begin(&self.activity);
 
+        let endpoint = endpoint_key(path);
         let mut attempt = 0;
         let queue_write = method == Method::POST && path == "/me/player/queue";
         loop {
@@ -761,7 +813,8 @@ impl ApiClient {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .note(path);
-            self.wait_for_budget(method == Method::GET).await?;
+            self.wait_for_budget(&endpoint, method == Method::GET)
+                .await?;
             let token = provider.access_token().await?;
             let mut request = self
                 .http
@@ -797,17 +850,14 @@ impl ApiClient {
                 let wait = response_retry_after.unwrap_or(Duration::from_secs(1));
                 let text = response.text().await.unwrap_or_default();
                 if is_quota_exhausted(&text) {
-                    let strikes = self
-                        .quota_strikes
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                        + 1;
                     let retry_after = response_retry_after;
-                    let pause = quota_pause(strikes, retry_after);
-                    *self.quota_until.lock().unwrap_or_else(|p| p.into_inner()) =
-                        Some(Instant::now() + pause);
-                    save_quota_pause(pause, strikes);
+                    let (pause, strikes) = self
+                        .quota
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .strike(&endpoint, unix_now(), retry_after);
                     log::warn!(
-                        "Spotify's Development Mode quota is used up (report {strikes} in a row, Retry-After {retry_after:?}); pausing Web API requests for {} minutes",
+                        "Spotify's Development Mode quota is used up for {endpoint} (report {strikes} in a row, Retry-After {retry_after:?}); pausing it for {} minutes",
                         pause.as_secs() / 60
                     );
                     return Err(ApiError::QuotaExhausted);
@@ -850,12 +900,12 @@ impl ApiClient {
             );
             if status.is_success() {
                 if self
-                    .quota_strikes
-                    .swap(0, std::sync::atomic::Ordering::Relaxed)
-                    > 0
+                    .quota
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clear(&endpoint)
                 {
-                    clear_quota_pause();
-                    log::info!("Spotify's Development Mode quota is back");
+                    log::info!("Spotify's Development Mode quota is back for {endpoint}");
                 }
                 return Ok(text);
             }
@@ -1544,6 +1594,24 @@ mod tests {
         assert_eq!(quota_pause(40, None), min(120));
         assert_eq!(quota_pause(1, Some(min(300))), min(300));
         assert_eq!(quota_pause(1, Some(Duration::from_secs(3))), min(10));
+    }
+
+    #[test]
+    fn a_used_up_endpoint_pauses_alone_until_it_succeeds() {
+        let mut pauses = QuotaPauses::default();
+        let tracks = endpoint_key("/tracks/4uLU6hMCjMI75M1A2tKUQC");
+        assert_eq!(
+            tracks,
+            endpoint_key("/tracks/0VjIjW4GlUZAMYd2vXMi3b?market=from_token")
+        );
+        let (pause, strikes) = pauses.strike(&tracks, 1_000, Some(Duration::from_secs(72_430)));
+        assert_eq!((pause.as_secs(), strikes), (72_430, 1));
+        assert!(pauses.blocked(&tracks, 1_000 + 72_429));
+        assert!(!pauses.blocked(&tracks, 1_000 + 72_430));
+        assert!(!pauses.blocked("/me/player", 1_000));
+        assert!(pauses.clear(&tracks));
+        assert!(!pauses.blocked(&tracks, 1_001));
+        assert!(!pauses.clear(&tracks));
     }
 
     /// An unrelated Pathfinder request can finish while another reply is slow.
