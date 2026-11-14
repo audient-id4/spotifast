@@ -3182,6 +3182,14 @@ impl Worker {
         let gateway = Arc::clone(&self.api);
         let commands = self.commands.clone();
         let attempt = self.authorization_attempt;
+        // Fork: the profile of the last verified sign-in. When Spotify's
+        // quota for /me is used up, it stands in for the answer, so the app
+        // opens instead of waiting on the sign-in screen until the reset.
+        let profile_file = (!cfg!(test)).then(|| {
+            self.dirs
+                .state
+                .join(format!("web-profile-{}.json", web_slot(source).index()))
+        });
         tokio::spawn(async move {
             let mut wait = Duration::from_secs(2);
             let error = loop {
@@ -3189,7 +3197,33 @@ impl Worker {
                     let _ = commands.send(Command::SignInEnded { source, attempt });
                     return;
                 }
-                match crate::api::client::unseen(client.me()).await {
+                let answer = match crate::api::client::unseen(client.me()).await {
+                    Ok(user) => {
+                        if let Some(path) = &profile_file
+                            && let Ok(json) = serde_json::to_vec(&user)
+                        {
+                            let _ = std::fs::write(path, json);
+                        }
+                        Ok(user)
+                    }
+                    Err(ApiError::QuotaExhausted) => {
+                        match profile_file
+                            .as_ref()
+                            .and_then(|path| std::fs::read(path).ok())
+                            .and_then(|json| serde_json::from_slice::<User>(&json).ok())
+                        {
+                            Some(user) => {
+                                log::info!(
+                                    "Spotify's quota for /me is used up; signing in with the saved profile"
+                                );
+                                Ok(user)
+                            }
+                            None => Err(ApiError::QuotaExhausted),
+                        }
+                    }
+                    Err(error) => Err(error),
+                };
+                match answer {
                     Ok(user) => {
                         let _ = commands.send(Command::WebVerified {
                             source,
