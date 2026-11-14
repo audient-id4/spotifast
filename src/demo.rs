@@ -8012,13 +8012,14 @@ mod tests {
     fn home_cards_open_item_menus() {
         for (section, title, uri, labels) in [
             (
-                crate::util::greeting(crate::i18n::Locale::English),
+                // Fork: the chips stand where the greeting was.
+                std::borrow::Cow::from("All"),
                 playlist(1).name,
                 playlist(1).uri,
                 vec!["Edit details", "Delete"],
             ),
             (
-                crate::util::greeting(crate::i18n::Locale::English),
+                std::borrow::Cow::from("All"),
                 playlist(0).name,
                 playlist(0).uri,
                 vec!["Remove from Your Library"],

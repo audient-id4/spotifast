@@ -542,7 +542,8 @@ fn banner(
 ) {
     let palette = app.palette;
     let width = ui.available_width();
-    let height = (width * 0.42).clamp(260.0, 420.0);
+    // Spotify's banner is a third of the panel's width tall.
+    let height = (width * 0.34).clamp(240.0, 500.0);
     let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     widgets::paint_cover(ui, &palette, Some(header), rect, 8.0, Icon::Music, None);
     // The fade: clear at the top, dark under the words.

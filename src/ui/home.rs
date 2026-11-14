@@ -39,12 +39,32 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
         return;
     }
-    ui.add_space(6.0);
-    let greeting = crate::util::greeting(app.locale);
-    theme::text(ui, greeting.as_ref(), theme::bold(30.0), palette.text);
+    // Fork: Spotify's Home opens with filter chips, not a greeting. Music
+    // leaves the podcasts out; Podcasts shows only them.
     ui.add_space(12.0);
-    quick_access(app, ui);
+    let filter_id = egui::Id::new("home-filter");
+    let mut filter = ui.data(|data| data.get_temp::<u8>(filter_id)).unwrap_or(0);
+    let labels = [
+        gettext(app.locale, "All"),
+        gettext(app.locale, "Music"),
+        gettext(app.locale, "Podcasts"),
+    ];
+    let options: Vec<(u8, &str)> = labels
+        .iter()
+        .enumerate()
+        .map(|(index, label)| (index as u8, label.as_ref()))
+        .collect();
+    if let Some(chosen) = widgets::chips(ui, &palette, &options, filter) {
+        filter = chosen;
+        ui.data_mut(|data| data.insert_temp(filter_id, filter));
+    }
     ui.add_space(16.0);
+    if filter == 2 {
+        podcasts(app, ui);
+        return;
+    }
+    quick_access(app, ui);
+    ui.add_space(24.0);
 
     if app.settings.home.made_for_you.visible {
         made_for_you(app, ui);
@@ -52,7 +72,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     new_releases(app, ui);
     recently_played(app, ui);
-    podcasts(app, ui);
+    if filter == 0 {
+        podcasts(app, ui);
+    }
     top_artists(app, ui);
     top_tracks(app, ui);
     if app.settings.home.recommendations.visible {
@@ -73,7 +95,8 @@ struct Tile {
 }
 
 /// The height of a quick-access tile, and so the side of its cover.
-const TILE_HEIGHT: f32 = 60.0;
+// Fork: Spotify's shortcut tiles are 48 tall.
+const TILE_HEIGHT: f32 = 48.0;
 /// How many quick-access tiles Home shows, as Spotify does.
 const TILES: usize = 8;
 
@@ -193,8 +216,8 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let tiles = quick_access_tiles(app);
     let available = ui.available_width();
-    let columns = ((available / 300.0).floor() as usize).clamp(2, 4);
-    let gap = 10.0;
+    let columns = if available >= 640.0 { 4 } else { 2 };
+    let gap = 8.0;
     let tile_width = (available - gap * (columns as f32 - 1.0)) / columns as f32;
     let rows = tiles.len().div_ceil(columns);
     for row in 0..rows {
@@ -218,28 +241,28 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                 if ui.is_rect_visible(rect) {
                     let hovered = ui.rect_contains_pointer(rect);
                     let fill = if hovered {
-                        palette.surface_hover
+                        palette.surface_active
                     } else {
-                        palette.surface
+                        palette.surface_hover
                     };
-                    ui.painter().rect_filled(rect, CornerRadius::same(6), fill);
+                    ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
                     let cover = Rect::from_min_size(rect.min, Vec2::splat(TILE_HEIGHT));
                     if *liked {
-                        super::sidebar::liked_cover(ui, cover, 6.0);
+                        super::sidebar::liked_cover(ui, cover, 4.0);
                     } else {
                         widgets::paint_cover(
                             ui,
                             &palette,
                             image.as_deref(),
                             cover,
-                            6.0,
+                            4.0,
                             Icon::Music,
                             Some(app.backend.art()),
                         );
                     }
-                    let play_room = if hovered && uri.is_some() { 52.0 } else { 12.0 };
+                    let play_room = if hovered && uri.is_some() { 48.0 } else { 8.0 };
                     let text_rect = Rect::from_min_max(
-                        pos2(cover.right() + 12.0, rect.top()),
+                        pos2(cover.right() + 8.0, rect.top()),
                         pos2(rect.right() - play_room, rect.bottom()),
                     );
                     crate::bidi::paint_line(
@@ -248,7 +271,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         text_rect.right(),
                         rect.center().y,
                         name,
-                        theme::bold(14.5),
+                        theme::bold(14.0),
                         palette.text,
                     );
                     if hovered && let Some(uri) = uri {
@@ -256,8 +279,8 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                             app.playing_context_uri().as_deref() == Some(uri.as_str());
                         let playing_here = context_here && app.believed_playing();
                         let button = Rect::from_center_size(
-                            pos2(rect.right() - 28.0, rect.center().y),
-                            Vec2::splat(40.0),
+                            pos2(rect.right() - 24.0, rect.center().y),
+                            Vec2::splat(32.0),
                         );
                         let mut child =
                             ui.new_child(egui::UiBuilder::new().max_rect(button).layout(
@@ -270,7 +293,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                             } else {
                                 Icon::PlayFilled
                             },
-                            40.0,
+                            32.0,
                             palette.accent,
                             palette.accent_hover,
                             palette.on_accent,
@@ -831,7 +854,7 @@ fn track_list(
         Loadable::Loaded(tracks) => tracks,
         Loadable::Loading | Loadable::NotLoaded => {
             if let Some(page) = title_page {
-                if theme::link(ui, title, theme::bold(17.0), palette.text).clicked() {
+                if theme::link(ui, title, theme::bold(24.0), palette.text).clicked() {
                     app.actions.push(Action::Open(page));
                 }
             } else {
@@ -852,7 +875,7 @@ fn track_list(
         return;
     }
     if let Some(page) = title_page {
-        if theme::link(ui, title, theme::bold(17.0), palette.text).clicked() {
+        if theme::link(ui, title, theme::bold(24.0), palette.text).clicked() {
             app.actions.push(Action::Open(page));
         }
     } else {
@@ -907,7 +930,7 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
     let tracks = app.home.top_tracks.clone();
 
     ui.horizontal(|ui| {
-        if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
+        if theme::link(ui, &*title, theme::bold(24.0), palette.text).clicked() {
             app.actions.push(Action::Open(Page::TopSongs));
         }
         // Fork: play counts and listening time from the data export.

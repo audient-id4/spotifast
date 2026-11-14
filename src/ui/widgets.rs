@@ -12,7 +12,8 @@ use crate::model::{Action, Dialog, DragEntry, DragTrack, Page, RowContext, RowPi
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
-pub const CARD_WIDTH: f32 = 172.0;
+// Fork: Spotify's card, 196 wide around a 172 picture.
+pub const CARD_WIDTH: f32 = 196.0;
 /// The cover inside a card, within its 12 point padding.
 pub const CARD_ART: f32 = CARD_WIDTH - 24.0;
 pub const CARD_GAP: f32 = 14.0;
@@ -2902,8 +2903,9 @@ pub fn card_row_height(ui: &mut Ui) -> f32 {
     const SUBTITLE_GAP: f32 = 2.0;
     const BOTTOM_PAD: f32 = 8.0;
     let image_size = CARD_ART;
-    let title_font = theme::semibold(14.0);
-    let subtitle_font = theme::regular(12.5);
+    // Fork: Spotify's card text, 16 regular over 14 grey.
+    let title_font = theme::regular(16.0);
+    let subtitle_font = theme::regular(14.0);
     let (title_row, subtitle_row) = ui.fonts_mut(|fonts| {
         (
             fonts.row_height(&title_font),
@@ -2934,8 +2936,9 @@ pub fn card(
     const BOTTOM_PAD: f32 = 8.0;
     let image_size = CARD_ART;
     let text_width = image_size;
-    let title_font = theme::semibold(14.0);
-    let subtitle_font = theme::regular(12.5);
+    // Fork: Spotify's card text, 16 regular over 14 grey.
+    let title_font = theme::regular(16.0);
+    let subtitle_font = theme::regular(14.0);
     // Every card reserves the title row and two subtitle rows, whatever its
     // own subtitle needs: a two-line subtitle then sits inside the hover
     // background, and a shelf that mixes one- and two-line subtitles keeps
@@ -2967,7 +2970,7 @@ pub fn card(
                 rect,
                 CornerRadius::same(theme::RADIUS),
                 palette
-                    .surface_hover
+                    .surface
                     .gamma_multiply(if palette.dark { 0.8 } else { 1.0 }),
             );
         }
@@ -3073,7 +3076,7 @@ pub fn linked_shelf(
     add_contents: impl FnOnce(&mut Ui),
 ) -> bool {
     ui.add_space(8.0);
-    let clicked = theme::link(ui, title, theme::bold(17.0), palette.text).clicked();
+    let clicked = theme::link(ui, title, theme::bold(24.0), palette.text).clicked();
     shelf_cards(ui, id, add_contents);
     clicked
 }
