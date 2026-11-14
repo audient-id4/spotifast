@@ -1252,6 +1252,9 @@ impl Backend {
         waker: Waker,
         restore_sign_in: bool,
     ) -> Self {
+        if !cfg!(test) {
+            crate::api::client::set_quota_file(dirs.state.join("web-api-quota.txt"));
+        }
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let runtime = tokio::runtime::Builder::new_multi_thread()

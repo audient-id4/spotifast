@@ -32,8 +32,60 @@ const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 const BUDGET_REQUESTS: usize = 180;
 const BUDGET_WINDOW: Duration = Duration::from_secs(30);
 /// Fork: after Spotify reports the quota used up, requests fail here without
-/// going out for this long, so sign-in retries do not keep spending it.
+/// going out for this long, so sign-in retries do not keep spending it. Each
+/// further report in a row doubles the pause, up to `QUOTA_PAUSE_MAX`; a
+/// `Retry-After` longer than the pause wins. Spotify publishes neither the
+/// quota nor its reset, so the pause learns it one cheap probe at a time.
 const QUOTA_PAUSE: Duration = Duration::from_secs(10 * 60);
+const QUOTA_PAUSE_MAX: Duration = Duration::from_secs(2 * 60 * 60);
+
+/// Fork: where the quota pause is kept, so a restart does not spend a request
+/// learning again that the quota is used up. Unset in tests.
+static QUOTA_FILE: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+pub fn set_quota_file(path: std::path::PathBuf) {
+    let _ = QUOTA_FILE.set(path);
+}
+
+/// The pause after the `strikes`-th quota report in a row.
+fn quota_pause(strikes: u32, retry_after: Option<Duration>) -> Duration {
+    let doubled = QUOTA_PAUSE.saturating_mul(1 << strikes.saturating_sub(1).min(5));
+    doubled.min(QUOTA_PAUSE_MAX).max(
+        retry_after
+            .unwrap_or_default()
+            .min(Duration::from_secs(24 * 60 * 60)),
+    )
+}
+
+/// Fork: the saved pause as (unix seconds it ends, strikes in a row).
+fn load_quota_pause() -> Option<(Instant, u32)> {
+    let text = std::fs::read_to_string(QUOTA_FILE.get()?).ok()?;
+    let (until, strikes) = text.trim().split_once(' ')?;
+    let until: u64 = until.parse().ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    let left = Duration::from_secs(until.checked_sub(now)?);
+    Some((Instant::now() + left, strikes.parse().ok()?))
+}
+
+fn save_quota_pause(pause: Duration, strikes: u32) {
+    let Some(path) = QUOTA_FILE.get() else {
+        return;
+    };
+    let until = std::time::SystemTime::now() + pause;
+    let Ok(until) = until.duration_since(std::time::UNIX_EPOCH) else {
+        return;
+    };
+    let _ = std::fs::write(path, format!("{} {strikes}", until.as_secs()));
+}
+
+fn clear_quota_pause() {
+    if let Some(path) = QUOTA_FILE.get() {
+        let _ = std::fs::remove_file(path);
+    }
+}
 
 /// Fork: when the requests of the last window went out, oldest first.
 #[derive(Default)]
@@ -43,6 +95,10 @@ struct Budget {
     /// keeps asking shows in the log by name.
     tally: std::collections::HashMap<String, u32>,
     tally_since: Option<Instant>,
+    /// Fork: requests sent this hour, logged once the hour is over, so the
+    /// log shows how much a normal session spends.
+    hour: u32,
+    hour_since: Option<Instant>,
 }
 
 impl Budget {
@@ -63,6 +119,13 @@ impl Budget {
             .collect::<Vec<_>>()
             .join("/");
         *self.tally.entry(key).or_default() += 1;
+        self.hour += 1;
+        let hour_since = *self.hour_since.get_or_insert_with(Instant::now);
+        if hour_since.elapsed() >= Duration::from_secs(60 * 60) {
+            log::info!("Web API asked {} times in the last hour", self.hour);
+            self.hour = 0;
+            self.hour_since = Some(Instant::now());
+        }
         let since = *self.tally_since.get_or_insert_with(Instant::now);
         if since.elapsed() >= Duration::from_secs(30) {
             let total: u32 = self.tally.values().sum();
@@ -461,6 +524,8 @@ pub struct ApiClient {
     /// Fork: the request budget and the pause after the quota ran out.
     budget: Mutex<Budget>,
     quota_until: Mutex<Option<Instant>>,
+    /// Fork: quota reports in a row, without a successful request between.
+    quota_strikes: std::sync::atomic::AtomicU32,
     search_limit: u32,
     artist_albums_limit: u32,
     source: ApiSource,
@@ -487,7 +552,10 @@ impl ApiClient {
             cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             partner_cooldown_until: tokio::sync::Mutex::new(Instant::now()),
             budget: Mutex::new(Budget::default()),
-            quota_until: Mutex::new(None),
+            quota_until: Mutex::new(load_quota_pause().map(|(until, _)| until)),
+            quota_strikes: std::sync::atomic::AtomicU32::new(
+                load_quota_pause().map_or(0, |(_, strikes)| strikes),
+            ),
             search_limit,
             artist_albums_limit,
             source,
@@ -720,19 +788,27 @@ impl ApiClient {
                 continue;
             }
             if status == StatusCode::TOO_MANY_REQUESTS {
-                let wait = response
+                let response_retry_after = response
                     .headers()
                     .get(reqwest::header::RETRY_AFTER)
                     .and_then(|value| value.to_str().ok())
                     .and_then(|value| value.parse::<u64>().ok())
-                    .map_or(Duration::from_secs(1), Duration::from_secs);
+                    .map(Duration::from_secs);
+                let wait = response_retry_after.unwrap_or(Duration::from_secs(1));
                 let text = response.text().await.unwrap_or_default();
                 if is_quota_exhausted(&text) {
+                    let strikes = self
+                        .quota_strikes
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        + 1;
+                    let retry_after = response_retry_after;
+                    let pause = quota_pause(strikes, retry_after);
                     *self.quota_until.lock().unwrap_or_else(|p| p.into_inner()) =
-                        Some(Instant::now() + QUOTA_PAUSE);
+                        Some(Instant::now() + pause);
+                    save_quota_pause(pause, strikes);
                     log::warn!(
-                        "Spotify's Development Mode quota is used up; pausing Web API requests for {} minutes",
-                        QUOTA_PAUSE.as_secs() / 60
+                        "Spotify's Development Mode quota is used up (report {strikes} in a row, Retry-After {retry_after:?}); pausing Web API requests for {} minutes",
+                        pause.as_secs() / 60
                     );
                     return Err(ApiError::QuotaExhausted);
                 }
@@ -773,6 +849,14 @@ impl ApiClient {
                 started.elapsed().as_millis()
             );
             if status.is_success() {
+                if self
+                    .quota_strikes
+                    .swap(0, std::sync::atomic::Ordering::Relaxed)
+                    > 0
+                {
+                    clear_quota_pause();
+                    log::info!("Spotify's Development Mode quota is back");
+                }
                 return Ok(text);
             }
             let message = serde_json::from_str::<ApiErrorBody>(&text)
@@ -1448,6 +1532,19 @@ impl ApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_quota_pause_doubles_with_each_report_in_a_row() {
+        let min = |m: u64| Duration::from_secs(m * 60);
+        assert_eq!(quota_pause(1, None), min(10));
+        assert_eq!(quota_pause(2, None), min(20));
+        assert_eq!(quota_pause(3, None), min(40));
+        assert_eq!(quota_pause(4, None), min(80));
+        assert_eq!(quota_pause(5, None), min(120));
+        assert_eq!(quota_pause(40, None), min(120));
+        assert_eq!(quota_pause(1, Some(min(300))), min(300));
+        assert_eq!(quota_pause(1, Some(Duration::from_secs(3))), min(10));
+    }
 
     /// An unrelated Pathfinder request can finish while another reply is slow.
     #[tokio::test]

@@ -33,7 +33,9 @@ use fastframe_now_playing::{
 /// The fork turns off the self-updater outside tests (see check_for_updates).
 const FORK_BUILD: bool = !cfg!(test);
 const REMOTE_POLL_ACTIVE: Duration = Duration::from_secs(4);
-const REMOTE_POLL_IDLE: Duration = Duration::from_secs(20);
+/// Fork: playing here, the state is known locally and Spotify pushes a
+/// takeover by another device, so this poll is only a safety net.
+const REMOTE_POLL_IDLE: Duration = Duration::from_secs(60);
 /// The shortest regular gap between playback polls, which spend the Web API
 /// quota.
 const REMOTE_POLL_MIN: Duration = Duration::from_secs(15);
