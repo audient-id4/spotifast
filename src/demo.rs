@@ -9000,16 +9000,9 @@ mod tests {
 
         // The name sits to the right of its label on one row. The sidebar
         // draws the same playlist name elsewhere, so look beside the label.
+        // Fork: Spotify names the source in the "Next from:" heading.
         let beside = |placed: &[(String, egui::Rect)], text: &str| {
-            let label = find(placed, "Playing from");
-            placed
-                .iter()
-                .find(|(drawn, rect)| {
-                    drawn == text
-                        && (rect.center().y - label.center().y).abs() < 10.0
-                        && rect.left() >= label.right()
-                })
-                .unwrap_or_else(|| panic!("{text} was not drawn beside its label: {placed:?}"));
+            find(placed, &format!("Next from: {text}"));
         };
 
         // The demo plays the second playlist.
@@ -9030,7 +9023,9 @@ mod tests {
         }
         let placed = drawn(&mut app);
         assert!(
-            !placed.iter().any(|(text, _)| text == "Playing from"),
+            !placed
+                .iter()
+                .any(|(text, _)| text.starts_with("Next from:")),
             "the row hides without a context"
         );
         app.backend.shutdown();
@@ -11271,7 +11266,13 @@ mod tests {
         let heading = tree
             .nodes
             .iter()
-            .find(|(_, node)| node.label() == Some("Next up") || node.value() == Some("Next up"))
+            .find(|(_, node)| {
+                // Fork: the heading names the source, "Next from: …".
+                let is_heading = |text: Option<&str>| {
+                    text.is_some_and(|text| text == "Next up" || text.starts_with("Next from:"))
+                };
+                is_heading(node.label()) || is_heading(node.value())
+            })
             .and_then(|(_, node)| node.bounds())
             .expect("the Next up heading");
         let heading = egui::Rect::from_min_max(
@@ -11488,7 +11489,13 @@ mod tests {
         let heading = tree
             .nodes
             .iter()
-            .find(|(_, node)| node.label() == Some("Next up") || node.value() == Some("Next up"))
+            .find(|(_, node)| {
+                // Fork: the heading names the source, "Next from: …".
+                let is_heading = |text: Option<&str>| {
+                    text.is_some_and(|text| text == "Next up" || text.starts_with("Next from:"))
+                };
+                is_heading(node.label()) || is_heading(node.value())
+            })
             .expect("the Next up heading")
             .0;
         let heading = bounds_of(heading);

@@ -129,41 +129,42 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
         vec2(width, 30.0),
         egui::Layout::right_to_left(egui::Align::Center),
         |ui| {
-        if !now.is_episode {
-            let saved = app.is_saved(&now.uri).unwrap_or(false);
-            let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-            if saved {
-                ui.painter().circle_filled(rect.center(), 10.0, palette.accent);
-                theme::paint_icon(ui, Icon::Check, rect, 13.0, egui::Color32::from_gray(10));
-            } else {
-                let tint = if response.hovered() {
-                    palette.text
+            if !now.is_episode {
+                let saved = app.is_saved(&now.uri).unwrap_or(false);
+                let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+                if saved {
+                    ui.painter()
+                        .circle_filled(rect.center(), 10.0, palette.accent);
+                    theme::paint_icon(ui, Icon::Check, rect, 13.0, egui::Color32::from_gray(10));
                 } else {
-                    palette.secondary
-                };
-                theme::paint_icon(ui, Icon::CirclePlus, rect, 20.0, tint);
+                    let tint = if response.hovered() {
+                        palette.text
+                    } else {
+                        palette.secondary
+                    };
+                    theme::paint_icon(ui, Icon::CirclePlus, rect, 20.0, tint);
+                }
+                if response
+                    .on_hover_text(if saved {
+                        gettext(locale, "Remove from Liked Songs")
+                    } else {
+                        gettext(locale, "Save to Liked Songs")
+                    })
+                    .clicked()
+                {
+                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                }
             }
-            if response
-                .on_hover_text(if saved {
-                    gettext(locale, "Remove from Liked Songs")
-                } else {
-                    gettext(locale, "Save to Liked Songs")
-                })
-                .clicked()
-            {
-                app.actions.push(Action::ToggleSaved(now.uri.clone()));
-            }
-        }
-        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(&now.title)
-                        .font(theme::bold(24.0))
-                        .color(palette.text),
-                )
-                .truncate(),
-            );
-        });
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(&now.title)
+                            .font(theme::bold(24.0))
+                            .color(palette.text),
+                    )
+                    .truncate(),
+                );
+            });
         },
     );
     let _ = row;
@@ -247,8 +248,12 @@ fn lyrics_card(app: &mut App, ui: &mut egui::Ui, now: &crate::app::NowPlaying) {
                     palette.text.gamma_multiply(0.55)
                 };
                 ui.add(
-                    egui::Label::new(egui::RichText::new(text).font(theme::bold(20.0)).color(color))
-                        .wrap(),
+                    egui::Label::new(
+                        egui::RichText::new(text)
+                            .font(theme::bold(20.0))
+                            .color(color),
+                    )
+                    .wrap(),
                 );
             }
         })
@@ -290,15 +295,7 @@ fn about_artist(app: &mut App, ui: &mut egui::Ui, artist: &crate::api::models::A
             // The picture across the top, with the heading over it.
             let height = (width * 0.62).round();
             let (art, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
-            widgets::paint_cover(
-                ui,
-                &palette,
-                picture.as_deref(),
-                art,
-                8.0,
-                Icon::Mic,
-                None,
-            );
+            widgets::paint_cover(ui, &palette, picture.as_deref(), art, 8.0, Icon::Mic, None);
             let shade = Rect::from_min_max(art.min, pos2(art.right(), art.top() + 44.0));
             let mut mesh = egui::Mesh::default();
             let dark = egui::Color32::from_black_alpha(150);
@@ -320,7 +317,8 @@ fn about_artist(app: &mut App, ui: &mut egui::Ui, artist: &crate::api::models::A
                 .inner_margin(Margin::same(16))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if theme::link(ui, &artist.name, theme::bold(17.0), palette.text).clicked() {
+                        if theme::link(ui, &artist.name, theme::bold(17.0), palette.text).clicked()
+                        {
                             app.actions.push(Action::Open(Page::Artist(id.clone())));
                         }
                         if visuals.verified {
@@ -329,7 +327,7 @@ fn about_artist(app: &mut App, ui: &mut egui::Ui, artist: &crate::api::models::A
                             ui.painter().circle_filled(
                                 badge.center(),
                                 8.0,
-                                egui::Color32::from_rgb(77, 145, 255),
+                                egui::Color32::from_rgb(61, 145, 244),
                             );
                             theme::paint_icon(ui, Icon::Check, badge, 10.0, egui::Color32::WHITE);
                         }

@@ -138,6 +138,28 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
                 || results.tracks.as_ref().is_none_or(|t| t.items.is_empty())
         });
     let top_art = app.art_px(TOP_RESULT_ART);
+    // Fork: an artist found by name gets Spotify's wide row across the
+    // page, then the songs below it at full width.
+    if let Some(artist) = top_artist {
+        artist_row(app, ui, artist);
+        ui.add_space(24.0);
+        songs(app, ui, results, 4);
+        ui.add_space(8.0);
+        shelf_artists(app, ui, results);
+        shelf_albums(app, ui, results);
+        shelf_playlists(app, ui, results);
+        shelf_shows(app, ui, results);
+        if results
+            .episodes
+            .as_ref()
+            .is_some_and(|page| !page.items.is_empty())
+        {
+            theme::section_title(ui, &palette, &gettext(locale, "Episodes"));
+            ui.add_space(4.0);
+            episodes(app, ui, results, 4);
+        }
+        return;
+    }
     let wide = ui.available_width() > 720.0;
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
@@ -287,6 +309,100 @@ fn all(app: &mut App, ui: &mut egui::Ui, results: &SearchResults) {
         ui.add_space(4.0);
         episodes(app, ui, results, 4);
     }
+}
+
+/// Fork: Spotify's top artist row: the round picture, the name in 24px
+/// bold over "Artist", and Follow and Play at the right, on a 104 point
+/// card rounded by 6.
+fn artist_row(app: &mut App, ui: &mut egui::Ui, artist: &crate::api::models::Artist) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), 104.0), Sense::click());
+    let hovered = ui.rect_contains_pointer(rect);
+    ui.painter().rect_filled(
+        rect,
+        CornerRadius::same(6),
+        if hovered {
+            palette.surface_hover
+        } else {
+            palette.surface
+        },
+    );
+    let picture = Rect::from_center_size(
+        pos2(rect.left() + 12.0 + 40.0, rect.center().y),
+        Vec2::splat(80.0),
+    );
+    widgets::paint_cover(
+        ui,
+        &palette,
+        pick_image(&artist.images, app.art_px(80.0)),
+        picture,
+        40.0,
+        Icon::User,
+        Some(app.backend.art()),
+    );
+    ui.painter().text(
+        pos2(picture.right() + 16.0, rect.center().y - 12.0),
+        egui::Align2::LEFT_CENTER,
+        &artist.name,
+        theme::bold(24.0),
+        palette.text,
+    );
+    ui.painter().text(
+        pos2(picture.right() + 16.0, rect.center().y + 16.0),
+        egui::Align2::LEFT_CENTER,
+        gettext(locale, "Artist"),
+        theme::regular(14.0),
+        palette.secondary,
+    );
+    // Play and Follow at the right, Play 48 and 16 in.
+    let controls = Rect::from_min_max(
+        pos2(rect.right() - 260.0, rect.top()),
+        pos2(rect.right() - 16.0, rect.bottom()),
+    );
+    let mut child = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(controls)
+            .layout(egui::Layout::right_to_left(egui::Align::Center)),
+    );
+    child.spacing_mut().item_spacing.x = 24.0;
+    let mut used = false;
+    if theme::circle_button(
+        &mut child,
+        Icon::PlayFilled,
+        48.0,
+        palette.accent,
+        palette.accent_hover,
+        palette.on_accent,
+        &gettext(locale, "Play"),
+    )
+    .clicked()
+    {
+        used = true;
+        app.actions.push(Action::PlayContext {
+            uri: artist.uri.clone(),
+            offset_uri: None,
+            offset_index: None,
+        });
+    }
+    let following = app.is_saved(&artist.uri).unwrap_or(false);
+    let label = if following {
+        crate::i18n::pgettext(locale, "artist", "Following")
+    } else {
+        crate::i18n::pgettext(locale, "artist", "Follow")
+    };
+    if theme::pill_button(&mut child, &palette, &label, false).clicked() {
+        used = true;
+        app.actions.push(Action::ToggleSaved(artist.uri.clone()));
+    }
+    if response.clicked() && !used {
+        app.actions
+            .push(Action::Open(Page::Artist(artist.id.clone())));
+    }
+    egui::Popup::context_menu(&response)
+        .frame(widgets::menu_frame(&palette))
+        .show(|ui| widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None));
 }
 
 enum TopResultSubtitle<'a> {

@@ -2827,10 +2827,11 @@ impl Worker {
                     let events = self.events.clone();
                     let waker = self.waker.clone();
                     tokio::spawn(async move {
-                        let result = tokio::task::spawn_blocking(move || crate::stats::read(&folder))
-                            .await
-                            .map_err(|error| error.to_string())
-                            .and_then(|result| result.map(std::sync::Arc::new));
+                        let result =
+                            tokio::task::spawn_blocking(move || crate::stats::read(&folder))
+                                .await
+                                .map_err(|error| error.to_string())
+                                .and_then(|result| result.map(std::sync::Arc::new));
                         let _ = events.send(Event::Stats(result));
                         waker.wake();
                     });

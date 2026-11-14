@@ -217,8 +217,7 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                     }
                     let response = match page {
                         Some(page) => {
-                            let response =
-                                theme::link(ui, text, theme::bold(14.0), palette.text);
+                            let response = theme::link(ui, text, theme::bold(14.0), palette.text);
                             if response.clicked() {
                                 app.actions.push(Action::Open(page.clone()));
                             }
@@ -467,7 +466,11 @@ pub fn actions_row(
             let clicked = if *saved && icon == Icon::CircleCheck {
                 let (rect, response) = ui.allocate_exact_size(Vec2::splat(42.0), Sense::click());
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip.as_ref())
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        tooltip.as_ref(),
+                    )
                 });
                 theme::focus_ring(ui, &response);
                 let fill = if response.hovered() {
@@ -477,10 +480,9 @@ pub fn actions_row(
                 };
                 let grow = if response.hovered() { 1.04 } else { 1.0 };
                 ui.painter().circle_filled(rect.center(), 13.0 * grow, fill);
-                Icon::Check.image(palette.on_accent, 16.0).paint_at(
-                    ui,
-                    Rect::from_center_size(rect.center(), Vec2::splat(16.0)),
-                );
+                Icon::Check
+                    .image(palette.on_accent, 16.0)
+                    .paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(16.0)));
                 response.on_hover_text(tooltip.as_ref()).clicked()
             } else {
                 theme::icon_button(ui, icon, 26.0, color, hover, tooltip).clicked()
@@ -573,7 +575,10 @@ pub fn actions_row(
                 );
                 Icon::LayoutList.image(color, 16.0).paint_at(
                     ui,
-                    Rect::from_center_size(pos2(rect.right() - 12.0, rect.center().y), Vec2::splat(16.0)),
+                    Rect::from_center_size(
+                        pos2(rect.right() - 12.0, rect.center().y),
+                        Vec2::splat(16.0),
+                    ),
                 );
                 egui::Popup::menu(&view)
                     .frame(widgets::menu_frame(&palette))
@@ -598,7 +603,9 @@ pub fn actions_row(
                 let id = egui::Id::new(("collection-filter", actions.name));
                 let open_id = id.with("open");
                 let open = !filter.is_empty()
-                    || ui.data(|data| data.get_temp::<bool>(open_id)).unwrap_or(false);
+                    || ui
+                        .data(|data| data.get_temp::<bool>(open_id))
+                        .unwrap_or(false);
                 if open {
                     let field = playlist_search(ui, &palette, locale, id, filter);
                     if field.lost_focus() && filter.is_empty() {
@@ -638,7 +645,10 @@ fn playlist_search(
         ui,
         Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0)),
     );
-    let field = Rect::from_min_max(pos2(rect.left() + 34.0, rect.top()), pos2(rect.right() - 8.0, rect.bottom()));
+    let field = Rect::from_min_max(
+        pos2(rect.left() + 34.0, rect.top()),
+        pos2(rect.right() - 8.0, rect.bottom()),
+    );
     let mut child = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(field)
@@ -649,7 +659,9 @@ fn playlist_search(
         locale,
         egui::TextEdit::singleline(text)
             .id(id)
-            .hint_text(egui::RichText::new(gettext(locale, "Search in playlist")).color(palette.secondary))
+            .hint_text(
+                egui::RichText::new(gettext(locale, "Search in playlist")).color(palette.secondary),
+            )
             .font(theme::regular(14.0))
             .text_color(palette.text)
             .frame(egui::Frame::NONE)
@@ -2156,7 +2168,11 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                 Table {
                     items: &items,
                     // Chosen chips leave rows that are no server slots.
-                    row_offset: if tags.active { 0 } else { page.items.base_offset },
+                    row_offset: if tags.active {
+                        0
+                    } else {
+                        page.items.base_offset
+                    },
                     pagination: (!tags.active).then_some(TablePagination {
                         total: page.items.total.unwrap_or(count),
                         loaded_count: page.items.items.len(),
@@ -2960,7 +2976,12 @@ pub(crate) fn tag_filter(
             chips
         }
     };
-    let selected = app.liked_tags.selected.get(key).cloned().unwrap_or_default();
+    let selected = app
+        .liked_tags
+        .selected
+        .get(key)
+        .cloned()
+        .unwrap_or_default();
     if selected.is_empty() {
         return TagFilter {
             items,
@@ -3037,39 +3058,41 @@ pub(crate) fn tag_chip_row(
     let mut make = false;
     let mut toggle_duplicates = false;
     ui.add_space(4.0);
-    widgets::chip_row_with_arrows(ui, egui::Id::new(("tag-chips", key)), palette.window, |ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        if let Some(count) = duplicates {
-            let label = format!("{} · {count}", gettext(app.locale, "Duplicates"));
-            toggle_duplicates = theme::soft_button(
-                ui,
-                &palette,
-                Some(Icon::Copy),
-                &label,
-                showing_duplicates,
-            )
-            .on_hover_text("Songs liked more than once, as from an album and its single")
-            .clicked();
-        }
-        if filter.active && !showing_duplicates {
-            let response = theme::soft_button(
-                ui,
-                &palette,
-                Some(Icon::ListPlus),
-                &gettext(app.locale, "Make playlist"),
-                false,
-            )
-            .on_hover_text(format!("{} songs", filter.items.len()));
-            make = response.clicked();
-        }
-        for (chip, active) in &filter.chips {
-            let response = theme::soft_button(ui, &palette, None, &chip.term, *active)
-                .on_hover_text(format!("{} songs", chip.songs));
-            if response.clicked() {
-                clicked = Some(chip.uri.clone());
+    widgets::chip_row_with_arrows(
+        ui,
+        egui::Id::new(("tag-chips", key)),
+        palette.window,
+        |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if let Some(count) = duplicates {
+                let label = format!("{} · {count}", gettext(app.locale, "Duplicates"));
+                toggle_duplicates =
+                    theme::soft_button(ui, &palette, Some(Icon::Copy), &label, showing_duplicates)
+                        .on_hover_text(
+                            "Songs liked more than once, as from an album and its single",
+                        )
+                        .clicked();
             }
-        }
-    });
+            if filter.active && !showing_duplicates {
+                let response = theme::soft_button(
+                    ui,
+                    &palette,
+                    Some(Icon::ListPlus),
+                    &gettext(app.locale, "Make playlist"),
+                    false,
+                )
+                .on_hover_text(format!("{} songs", filter.items.len()));
+                make = response.clicked();
+            }
+            for (chip, active) in &filter.chips {
+                let response = theme::soft_button(ui, &palette, None, &chip.term, *active)
+                    .on_hover_text(format!("{} songs", chip.songs));
+                if response.clicked() {
+                    clicked = Some(chip.uri.clone());
+                }
+            }
+        },
+    );
     ui.add_space(8.0);
     if toggle_duplicates {
         app.liked_tags.duplicates = !showing_duplicates;

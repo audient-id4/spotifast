@@ -24,7 +24,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if theme::soft_button(ui, &palette, Some(Icon::Refresh), "Reload", false).clicked() {
                 app.load_stats();
             }
-            if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false).clicked()
+            if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
+                .clicked()
             {
                 let _ = std::fs::create_dir_all(&folder);
                 let _ = crate::opener::open(&folder);
@@ -150,7 +151,10 @@ fn page(app: &mut App, ui: &mut egui::Ui, palette: &Palette, stats: &Stats) {
     bars(ui, palette, &weekdays, 70.0);
 
     heading(ui, palette, "Top artists");
-    let top = stats.top_artists.first().map_or(1, |artist| artist.ms.max(1));
+    let top = stats
+        .top_artists
+        .first()
+        .map_or(1, |artist| artist.ms.max(1));
     for (rank, artist) in stats.top_artists.iter().enumerate() {
         ranked_row(
             ui,

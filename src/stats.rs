@@ -123,7 +123,8 @@ fn summarize(rows: Vec<Row>, zone: jiff::tz::TimeZone) -> Stats {
     let mut months: HashMap<String, u64> = HashMap::new();
     let mut artists: HashMap<String, Artist> = HashMap::new();
     let mut songs: HashMap<String, Song> = HashMap::new();
-    let (mut first, mut last): (Option<jiff::civil::Date>, Option<jiff::civil::Date>) = (None, None);
+    let (mut first, mut last): (Option<jiff::civil::Date>, Option<jiff::civil::Date>) =
+        (None, None);
     for row in rows {
         let (Some(name), Some(artist)) = (
             row.master_metadata_track_name,
@@ -227,10 +228,34 @@ mod tests {
     #[test]
     fn counts_plays_over_thirty_seconds() {
         let rows = vec![
-            row("2025-03-01T22:10:00Z", 180_000, "Эльфа", "Маленький ярче", "spotify:track:a"),
-            row("2025-03-02T22:10:00Z", 200_000, "Эльфа", "Маленький ярче", "spotify:track:a"),
-            row("2025-04-01T10:00:00Z", 10_000, "Эльфа", "Маленький ярче", "spotify:track:a"),
-            row("2025-04-02T10:00:00Z", 150_000, "TORE UP", "Don Toliver", "spotify:track:b"),
+            row(
+                "2025-03-01T22:10:00Z",
+                180_000,
+                "Эльфа",
+                "Маленький ярче",
+                "spotify:track:a",
+            ),
+            row(
+                "2025-03-02T22:10:00Z",
+                200_000,
+                "Эльфа",
+                "Маленький ярче",
+                "spotify:track:a",
+            ),
+            row(
+                "2025-04-01T10:00:00Z",
+                10_000,
+                "Эльфа",
+                "Маленький ярче",
+                "spotify:track:a",
+            ),
+            row(
+                "2025-04-02T10:00:00Z",
+                150_000,
+                "TORE UP",
+                "Don Toliver",
+                "spotify:track:b",
+            ),
             Row {
                 ts: "2025-04-03T10:00:00Z".into(),
                 ms_played: 999_000,
@@ -247,7 +272,10 @@ mod tests {
         assert_eq!(stats.top_artists[0].name, "Маленький ярче");
         assert_eq!(
             stats.months,
-            [("2025-03".to_string(), 380_000), ("2025-04".to_string(), 160_000)]
+            [
+                ("2025-03".to_string(), 380_000),
+                ("2025-04".to_string(), 160_000)
+            ]
         );
         assert_eq!(stats.hours[22], 380_000);
         assert_eq!(stats.first, "2025-03-01");

@@ -352,20 +352,14 @@ fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibraryS
     let locale = app.locale;
     let labels = [
         (LibrarySort::Library, gettext(locale, "Library order")),
-        (
-            LibrarySort::RecentlyPlayed,
-            gettext(locale, "Recents"),
-        ),
+        (LibrarySort::RecentlyPlayed, gettext(locale, "Recents")),
         (LibrarySort::Name, gettext(locale, "Alphabetical")),
         (
             LibrarySort::RecentlyAdded,
             gettext(locale, "Recently added"),
         ),
         (LibrarySort::Local, gettext(locale, "Local custom order")),
-        (
-            LibrarySort::Spotify,
-            gettext(locale, "Custom order"),
-        ),
+        (LibrarySort::Spotify, gettext(locale, "Custom order")),
     ];
     let label = &labels
         .iter()
@@ -374,14 +368,18 @@ fn sort_menu(app: &mut App, ui: &mut egui::Ui, shelf: Filter, selected: LibraryS
         .1;
     // Fork: Spotify's sort, the order's name in 14px grey and a list glyph.
     let palette = app.palette;
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), theme::regular(14.0), palette.secondary);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_string(), theme::regular(14.0), palette.secondary);
     let size = vec2(galley.size().x + 8.0 + 16.0 + 8.0, 32.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
-        let color = if hovered { palette.text } else { palette.secondary };
+        let color = if hovered {
+            palette.text
+        } else {
+            palette.secondary
+        };
         ui.painter().galley(
             pos2(rect.left() + 4.0, rect.center().y - galley.size().y / 2.0),
             galley,
@@ -1041,7 +1039,8 @@ fn create_pill(ui: &mut egui::Ui, palette: &Palette, label: &str) -> egui::Respo
             palette.surface
         };
         ui.painter().rect_filled(rect, 18.0, fill);
-        let plus = Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(16.0));
+        let plus =
+            Rect::from_center_size(pos2(rect.left() + 24.0, rect.center().y), Vec2::splat(16.0));
         Icon::Plus.image(palette.text, 16.0).paint_at(ui, plus);
         ui.painter().galley(
             pos2(plus.right() + 8.0, rect.center().y - galley.size().y / 2.0),

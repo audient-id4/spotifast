@@ -453,7 +453,14 @@ fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Optio
         && let Some(header) = visuals.header.as_deref()
     {
         let listeners = byline.first().map(|(text, _)| text.clone());
-        banner(app, ui, artist, header, visuals.verified, listeners.as_deref());
+        banner(
+            app,
+            ui,
+            artist,
+            header,
+            visuals.verified,
+            listeners.as_deref(),
+        );
         return;
     }
     let images = hero_images(
@@ -590,9 +597,10 @@ fn banner(
         .galley(egui::pos2(left, name_top), galley, egui::Color32::WHITE);
     if verified {
         let badge_y = name_top - 4.0;
-        let badge = egui::Rect::from_min_size(egui::pos2(left, badge_y - 22.0), egui::vec2(22.0, 22.0));
+        let badge =
+            egui::Rect::from_min_size(egui::pos2(left, badge_y - 22.0), egui::vec2(22.0, 22.0));
         ui.painter()
-            .circle_filled(badge.center(), 11.0, egui::Color32::from_rgb(77, 145, 255));
+            .circle_filled(badge.center(), 11.0, egui::Color32::from_rgb(61, 145, 244));
         theme::paint_icon(ui, Icon::Check, badge, 13.0, egui::Color32::WHITE);
         ui.painter().text(
             egui::pos2(badge.right() + 8.0, badge.center().y),
@@ -690,8 +698,16 @@ fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
             ui,
             Icon::Shuffle,
             28.0,
-            if shuffle { palette.accent } else { palette.secondary },
-            if shuffle { palette.accent_hover } else { palette.text },
+            if shuffle {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            if shuffle {
+                palette.accent_hover
+            } else {
+                palette.text
+            },
             &gettext(locale, "Shuffle"),
         )
         .clicked()

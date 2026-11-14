@@ -337,8 +337,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 };
 
             // Fork: Home sits before the field, 48 and 8 apart.
-            let search_room =
-                (ui.available_width() - window_controls.topbar_width - 56.0).max(0.0);
+            let search_room = (ui.available_width() - window_controls.topbar_width - 56.0).max(0.0);
             // What sits before the field: the page padding, the navigation
             // buttons, and any window buttons. The panels beside the page
             // keep room for it (`least_width`).
@@ -356,15 +355,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     - controls
                     - badges(fit.labels)
                     - group;
-                let start = (ui.max_rect().center().x - group / 2.0)
-                    .min(here + room_after.max(0.0));
+                let start =
+                    (ui.max_rect().center().x - group / 2.0).min(here + room_after.max(0.0));
                 if start > here {
                     ui.add_space(start - here);
                 }
                 let on_home = matches!(app.page(), Page::Home);
                 let (rect, response) = ui.allocate_exact_size(Vec2::splat(48.0), Sense::click());
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, gettext(locale, "Home"))
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        gettext(locale, "Home"),
+                    )
                 });
                 if ui.is_rect_visible(rect) {
                     let hovered = response.hovered() || response.has_focus();
@@ -464,7 +467,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         palette.surface
                     };
-                    ui.painter().circle_filled(rect.center(), AVATAR_SIZE / 2.0, fill);
+                    ui.painter()
+                        .circle_filled(rect.center(), AVATAR_SIZE / 2.0, fill);
                     let inner = egui::Rect::from_center_size(rect.center(), Vec2::splat(32.0));
                     match avatar.as_deref() {
                         Some(url) => super::widgets::paint_cover(

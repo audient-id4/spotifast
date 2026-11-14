@@ -122,7 +122,10 @@ pub async fn load(
 }
 
 /// Every song's descriptors through extended metadata.
-async fn fetch(session: &Session, uris: &[String]) -> anyhow::Result<HashMap<String, Vec<Concept>>> {
+async fn fetch(
+    session: &Session,
+    uris: &[String],
+) -> anyhow::Result<HashMap<String, Vec<Concept>>> {
     let mut request = BatchedEntityRequest::new();
     for uri in uris {
         request.entity_request.push(EntityRequest {
@@ -312,8 +315,7 @@ pub fn chips<'a>(uris: impl Iterator<Item = &'a str>, tags: &Tags) -> Vec<Chip> 
             let same_kind = kind.is_empty()
                 || other_kind.is_empty()
                 || kind.iter().any(|k| other_kind.contains(k));
-            same_kind
-                && set.intersection(chosen).count() as f32 / set.len() as f32 >= MAX_OVERLAP
+            same_kind && set.intersection(chosen).count() as f32 / set.len() as f32 >= MAX_OVERLAP
         });
         if !redundant {
             picked.push((uri, set));
@@ -369,7 +371,12 @@ pub fn duplicates(tracks: &[&crate::api::models::Track]) -> Vec<usize> {
         if track.uri.is_empty() || track.is_local {
             continue;
         }
-        if let Some(isrc) = track.external_ids.isrc.as_deref().filter(|isrc| !isrc.is_empty()) {
+        if let Some(isrc) = track
+            .external_ids
+            .isrc
+            .as_deref()
+            .filter(|isrc| !isrc.is_empty())
+        {
             if let Some(&first) = by_isrc.get(isrc) {
                 let (a, b) = (root(&mut parent, first), root(&mut parent, index));
                 parent[b] = a;
@@ -382,7 +389,9 @@ pub fn duplicates(tracks: &[&crate::api::models::Track]) -> Vec<usize> {
             .first()
             .map(|artist| artist.name.to_lowercase())
             .unwrap_or_default();
-        let same = by_title.entry((plain_title(&track.name), artist)).or_default();
+        let same = by_title
+            .entry((plain_title(&track.name), artist))
+            .or_default();
         for &other in same.iter() {
             if tracks[other].duration_ms.abs_diff(track.duration_ms) <= 2000 {
                 let (a, b) = (root(&mut parent, other), root(&mut parent, index));

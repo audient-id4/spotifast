@@ -7922,7 +7922,9 @@ impl App {
         }
         self.liked_tags.checked.insert(key.to_string(), checked);
         let missing: Vec<String> = uris
-            .filter(|uri| uri.starts_with("spotify:track:") && !self.liked_tags.asked.contains(*uri))
+            .filter(|uri| {
+                uri.starts_with("spotify:track:") && !self.liked_tags.asked.contains(*uri)
+            })
             .map(str::to_owned)
             .collect();
         if missing.is_empty() {

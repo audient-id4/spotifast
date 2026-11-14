@@ -387,9 +387,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             .get()
             .and_then(|queue| queue.currently_playing.clone()),
     };
-    // Where the songs come from, above the song itself. A radio has no
-    // page, so its name is plain text.
-    if let Some(from) = app.playing_from().filter(|_| current.is_some()) {
+    // Fork: Spotify names the source in its Next from heading instead.
+    let from = app.playing_from().filter(|_| current.is_some());
+    if false && let Some(from) = from.clone() {
         ui.horizontal(|ui| {
             theme::text(
                 ui,
@@ -414,7 +414,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         theme::text(
             ui,
             gettext(app.locale, "Now playing"),
-            theme::semibold(14.0),
+            theme::bold(16.0),
             palette.text,
         );
         ui.add_space(4.0);
@@ -583,16 +583,22 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     // row on it belongs to Next up, which plays from the context and is never
     // rewritten. The player bar's Queue button still takes the drop.
     if queue_len > queued_len {
-        theme::text(
-            ui,
-            gettext(
+        // Fork: "Next from: <source>", as Spotify heads the rest.
+        let heading = match &from {
+            Some(from) => format!("Next from: {}", from.name),
+            None => gettext(
                 app.locale,
                 // Translators: Upcoming songs from the current playlist or album, after manually queued songs.
                 "Next up",
-            ),
-            theme::semibold(14.0),
-            palette.text,
-        );
+            )
+            .into_owned(),
+        };
+        let heading = theme::text(ui, heading, theme::bold(16.0), palette.text);
+        if let Some(page) = from.as_ref().and_then(|from| from.page.clone())
+            && heading.interact(egui::Sense::click()).clicked()
+        {
+            app.actions.push(Action::Open(page));
+        }
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
             queue_row(app, ui, queued_len + index, compact, 0.0);

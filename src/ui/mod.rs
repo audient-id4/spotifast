@@ -21,10 +21,10 @@ pub mod radio;
 pub mod search;
 pub mod settings;
 pub mod show;
-pub mod stats;
 pub mod sidebar;
 pub mod skin_cards;
 mod soloist;
+pub mod stats;
 pub mod topbar;
 mod update;
 pub mod widgets;
@@ -178,11 +178,9 @@ fn playing_on_bar(app: &mut App, ui: &mut egui::Ui) {
             let (rect, response) =
                 ui.allocate_exact_size(ui.available_size(), egui::Sense::click());
             ui.painter().rect_filled(rect, 4.0, accent);
-            let galley = ui.painter().layout_no_wrap(
-                label.clone(),
-                theme::bold(14.0),
-                Color32::BLACK,
-            );
+            let galley =
+                ui.painter()
+                    .layout_no_wrap(label.clone(), theme::bold(14.0), Color32::BLACK);
             let text_left = rect.right() - 16.0 - galley.size().x;
             ui.painter().galley(
                 egui::pos2(text_left, rect.center().y - galley.size().y / 2.0),
@@ -415,7 +413,12 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
         });
 }
 
-fn central_contents(app: &mut App, ui: &mut egui::Ui, palette: theme::Palette, tint: Option<Color32>) {
+fn central_contents(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    palette: theme::Palette,
+    tint: Option<Color32>,
+) {
     {
         {
             let rect = ui.max_rect();
@@ -444,11 +447,13 @@ fn central_contents(app: &mut App, ui: &mut egui::Ui, palette: theme::Palette, t
                 if bottom == palette.window && !overview {
                     // Spotify's colour is the art's, a quarter greyer.
                     let [r, g, b, _] = top.to_array();
-                    let grey = (0.3 * f32::from(r) + 0.59 * f32::from(g) + 0.11 * f32::from(b)) as u8;
+                    let grey =
+                        (0.3 * f32::from(r) + 0.59 * f32::from(g) + 0.11 * f32::from(b)) as u8;
                     let top = blend(top, Color32::from_gray(grey), 0.25);
                     let half = blend(top, Color32::BLACK, 0.5);
                     widgets::paint_vertical_gradient(ui, header, top, half);
-                    let band = Rect::from_min_size(header.left_bottom(), vec2(header.width(), 232.0));
+                    let band =
+                        Rect::from_min_size(header.left_bottom(), vec2(header.width(), 232.0));
                     widgets::paint_vertical_gradient(
                         ui,
                         band,

@@ -937,7 +937,9 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(12.0);
         let stats = gettext(app.locale, "Your stats");
         if theme::link(ui, &*stats, theme::medium(13.0), palette.secondary)
-            .on_hover_text("Play counts, hours by month and top artists from your Spotify data export")
+            .on_hover_text(
+                "Play counts, hours by month and top artists from your Spotify data export",
+            )
             .clicked()
         {
             app.actions.push(Action::Open(Page::Stats));

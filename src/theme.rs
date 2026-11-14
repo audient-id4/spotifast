@@ -238,7 +238,8 @@ fn status_detail(status: Option<fastframe_theme::Status>, locale: Locale) -> Cow
 pub const RADIUS: u8 = 8;
 pub const RADIUS_SMALL: u8 = 4;
 pub const ROW_HEIGHT: f32 = 56.0;
-pub const COMPACT_ROW_HEIGHT: f32 = 48.0;
+/// Fork: Spotify's side panel rows, 64 around a 48 cover.
+pub const COMPACT_ROW_HEIGHT: f32 = 64.0;
 /// The compact track list: one line, no cover.
 pub const THIN_ROW_HEIGHT: f32 = 36.0;
 pub const PLAYER_BAR_HEIGHT: f32 = 80.0;
@@ -349,9 +350,11 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     visuals.hyperlink_color = palette.text;
     visuals.selection.bg_fill = palette.accent.gamma_multiply(0.35);
     visuals.selection.stroke = Stroke::new(1.0, palette.accent);
-    visuals.window_stroke = Stroke::new(1.0, palette.outline);
-    visuals.window_corner_radius = CornerRadius::same(RADIUS + 2);
-    visuals.menu_corner_radius = CornerRadius::same(RADIUS);
+    // Fork: Spotify's popups and tooltips have no border and round by 4;
+    // dialogs by 8.
+    visuals.window_stroke = Stroke::NONE;
+    visuals.window_corner_radius = CornerRadius::same(RADIUS);
+    visuals.menu_corner_radius = CornerRadius::same(4);
     visuals.window_shadow = egui::epaint::Shadow {
         offset: [0, 6],
         blur: 24,
@@ -359,10 +362,10 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
         color: palette.shadow,
     };
     visuals.popup_shadow = egui::epaint::Shadow {
-        offset: [0, 4],
-        blur: 16,
+        offset: [0, 16],
+        blur: 24,
         spread: 0,
-        color: palette.shadow,
+        color: Color32::from_black_alpha(77),
     };
     let corner = CornerRadius::same(RADIUS_SMALL + 2);
     for widget in [
@@ -406,7 +409,7 @@ fn apply_to_style(style: &mut egui::Style, palette: &Palette) {
     style.spacing.item_spacing = Vec2::new(8.0, 6.0);
     style.spacing.button_padding = Vec2::new(12.0, 6.0);
     style.spacing.interact_size = Vec2::new(40.0, 28.0);
-    style.spacing.menu_margin = egui::Margin::same(6);
+    style.spacing.menu_margin = egui::Margin::symmetric(8, 6);
     style.spacing.window_margin = egui::Margin::same(16);
     style.spacing.scroll = egui::style::ScrollStyle {
         bar_width: 8.0,

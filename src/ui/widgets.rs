@@ -451,9 +451,12 @@ fn menu_item_response(
     enabled: bool,
     highlighted: bool,
 ) -> (egui::Response, bool) {
+    // Fork: Spotify's menu row, 40 tall, 12 in, a 16 glyph 12 before
+    // 14px text in 90% white, lit by a tenth of white. Rows touch.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
-        vec2(width, 28.0),
+        vec2(width, 40.0),
         if enabled {
             Sense::click()
         } else {
@@ -463,30 +466,26 @@ fn menu_item_response(
     if ui.is_rect_visible(rect) {
         if (response.hovered() || highlighted) && enabled {
             ui.painter()
-                .rect_filled(rect, CornerRadius::same(6), palette.surface_hover);
+                .rect_filled(rect, CornerRadius::same(2), Color32::from_white_alpha(26));
         }
-        let color = if enabled { palette.text } else { palette.dim };
-        let mut x = rect.left() + 10.0;
+        let color = if enabled {
+            palette.text.gamma_multiply(0.9)
+        } else {
+            palette.dim
+        };
+        let mut x = rect.left() + 12.0;
         if let Some(icon) = icon {
             let icon_rect =
                 Rect::from_center_size(pos2(x + 8.0, rect.center().y), Vec2::splat(16.0));
-            icon.image(
-                if enabled {
-                    palette.secondary
-                } else {
-                    palette.dim
-                },
-                16.0,
-            )
-            .paint_at(ui, icon_rect);
-            x += 26.0;
+            icon.image(color, 16.0).paint_at(ui, icon_rect);
+            x += 28.0;
         }
         // A playlist can be named a paragraph; the label ends at the menu's
         // edge instead of running past it.
         let galley = crate::bidi::layout(
             ui.painter(),
             label,
-            theme::regular(13.5),
+            theme::regular(14.0),
             color,
             (rect.right() - 10.0 - x).max(0.0),
             1,
@@ -652,26 +651,30 @@ fn submenu<R>(
 }
 
 pub fn menu_separator(ui: &mut Ui, palette: &Palette) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 9.0), Sense::hover());
+    // Fork: Spotify's hairline, a tenth of white.
+    let _ = palette;
+    ui.spacing_mut().item_spacing.y = 0.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 3.0), Sense::hover());
     ui.painter().hline(
-        rect.x_range().shrink(6.0),
+        rect.x_range(),
         rect.center().y,
-        Stroke::new(1.0, palette.outline),
+        Stroke::new(1.0, Color32::from_white_alpha(26)),
     );
 }
 
 /// The frame every popup menu uses.
 pub fn menu_frame(palette: &Palette) -> egui::Frame {
+    // Fork: Spotify's menu, #282828 with no border, rounded by 4, 4 in,
+    // under a deep soft shadow.
     egui::Frame::new()
         .fill(palette.overlay)
-        .stroke(Stroke::new(1.0, palette.outline))
-        .corner_radius(CornerRadius::same(theme::RADIUS))
-        .inner_margin(egui::Margin::same(6))
+        .corner_radius(CornerRadius::same(4))
+        .inner_margin(egui::Margin::same(4))
         .shadow(egui::epaint::Shadow {
-            offset: [0, 6],
-            blur: 20,
+            offset: [0, 16],
+            blur: 24,
             spread: 0,
-            color: palette.shadow,
+            color: Color32::from_black_alpha(77),
         })
 }
 
@@ -1706,7 +1709,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     Columns {
         number: if row.compact { 0.0 } else { 44.0 },
         cover: if row.show_cover {
-            if row.compact { 44.0 } else { 52.0 }
+            if row.compact { 60.0 } else { 52.0 }
         } else {
             0.0
         },
@@ -1719,7 +1722,8 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         added,
         plays,
         heart: if row.compact { 0.0 } else { 36.0 },
-        duration: if row.compact { 44.0 } else { 56.0 },
+        // Fork: Spotify's side panels show no lengths.
+        duration: if row.compact { 0.0 } else { 56.0 },
         more: if row.compact { 0.0 } else { 36.0 },
     }
 }
@@ -1873,7 +1877,8 @@ fn track_row_contents(
     // when a mouse click gives the row focus for arrow-key navigation.
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
-    let mut x = rect.left() + 8.0;
+    // Fork: side panel covers line up with the headings, as Spotify's queue.
+    let mut x = rect.left() + if row.compact { 0.0 } else { 8.0 };
 
     // Number / play.
     if cols.number > 0.0 {
@@ -1913,9 +1918,12 @@ fn track_row_contents(
     }
     // Cover.
     if cols.cover > 0.0 {
-        let size = if row.compact { 36.0 } else { 40.0 };
+        let size = if row.compact { 48.0 } else { 40.0 };
         let cover_rect = Rect::from_center_size(
-            pos2(x + size / 2.0 + 2.0, rect.center().y),
+            pos2(
+                x + size / 2.0 + if row.compact { 0.0 } else { 2.0 },
+                rect.center().y,
+            ),
             Vec2::splat(size),
         );
         paint_cover(
@@ -1996,7 +2004,7 @@ fn track_row_contents(
         theme::text(
             &mut child,
             row.item.name(),
-            theme::medium(14.0),
+            theme::regular(16.0),
             title_color,
         );
         match row.item {
@@ -2014,7 +2022,7 @@ fn track_row_contents(
                     &mut child,
                     app,
                     &track.artists,
-                    theme::regular(13.0),
+                    theme::regular(14.0),
                     subtitle_color,
                 );
                 if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
@@ -2050,7 +2058,7 @@ fn track_row_contents(
                     );
                     let show_id = episode.show.as_ref().map(|show| show.id.clone());
                     let response =
-                        theme::link(&mut child, subtitle, theme::regular(13.0), subtitle_color);
+                        theme::link(&mut child, subtitle, theme::regular(14.0), subtitle_color);
                     if response.clicked()
                         && let Some(id) = show_id
                     {
@@ -2089,7 +2097,7 @@ fn track_row_contents(
         child.add_space(vertical_pad);
         child.horizontal(|ui| {
             ui.set_max_width(title_rect.width());
-            theme::text(ui, row.item.name(), theme::medium(14.5), title_color);
+            theme::text(ui, row.item.name(), theme::regular(16.0), title_color);
         });
         child.horizontal(|ui| {
             ui.set_max_width(title_rect.width());
@@ -2238,7 +2246,11 @@ fn track_row_contents(
     if cols.plays > 0.0 {
         // Fork: a fresh release Spotify has no count for yet shows nothing,
         // as Spotify does, rather than 0.
-        if let Some(plays) = app.play_counts.get(row.item.uri()).filter(|plays| **plays > 0) {
+        if let Some(plays) = app
+            .play_counts
+            .get(row.item.uri())
+            .filter(|plays| **plays > 0)
+        {
             let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.plays, row_height));
             painter.text(
                 pos2(cell.left(), cell.center().y),
@@ -2308,13 +2320,15 @@ fn track_row_contents(
 
     // Duration.
     let duration_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.duration, row_height));
-    painter.text(
-        pos2(duration_rect.right() - 6.0, duration_rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        util::format_duration_ms(row.item.duration_ms()),
-        theme::regular(13.0),
-        palette.secondary,
-    );
+    if cols.duration > 0.0 {
+        painter.text(
+            pos2(duration_rect.right() - 6.0, duration_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            util::format_duration_ms(row.item.duration_ms()),
+            theme::regular(13.0),
+            palette.secondary,
+        );
+    }
     x += cols.duration;
 
     // More.
@@ -3643,7 +3657,10 @@ pub fn chip_row_with_arrows(
     // The chips' own band: the area's rect can reach past them.
     let rect = Rect::from_min_size(
         row.inner_rect.min,
-        vec2(row.inner_rect.width(), row.content_size.y.min(row.inner_rect.height())),
+        vec2(
+            row.inner_rect.width(),
+            row.content_size.y.min(row.inner_rect.height()),
+        ),
     );
     let offset = row.state.offset.x;
     let max = (row.content_size.x - rect.width()).max(0.0);
@@ -3685,7 +3702,11 @@ pub fn chip_row_with_arrows(
             egui::Color32::from_gray(232)
         };
         ui.painter().circle_filled(center, size / 2.0, color);
-        let icon = if left { Icon::ChevronLeft } else { Icon::ChevronRight };
+        let icon = if left {
+            Icon::ChevronLeft
+        } else {
+            Icon::ChevronRight
+        };
         theme::paint_icon(ui, icon, button, size * 0.6, egui::Color32::from_gray(18));
         response.clicked()
     }
@@ -3829,8 +3850,10 @@ pub fn search_field(
         .paint_at(ui, icon_rect);
     // Browse at the right end, after a thin divider, as Spotify has it.
     if width > 220.0 {
-        let browse =
-            Rect::from_center_size(pos2(rect.right() - 28.0, rect.center().y), Vec2::splat(24.0));
+        let browse = Rect::from_center_size(
+            pos2(rect.right() - 28.0, rect.center().y),
+            Vec2::splat(24.0),
+        );
         ui.painter().line_segment(
             [
                 pos2(browse.left() - 12.0, rect.center().y - 12.0),
@@ -3844,7 +3867,10 @@ pub fn search_field(
     }
     let field_rect = Rect::from_min_max(
         pos2(rect.left() + 48.0, rect.top() + 1.0),
-        pos2(rect.right() - if text.is_empty() { 64.0 } else { 104.0 }, rect.bottom() - 1.0),
+        pos2(
+            rect.right() - if text.is_empty() { 64.0 } else { 104.0 },
+            rect.bottom() - 1.0,
+        ),
     );
     let mut child = ui.new_child(
         UiBuilder::new()
@@ -3886,9 +3912,16 @@ pub fn search_field(
         // the child's top edge, dropping the glyph below the midline.
         // Fork: Spotify's clear cross, 24, before the divider.
         let clear_size = 20.0;
-        let clear_right = if width > 220.0 { rect.right() - 64.0 } else { rect.right() - 4.0 };
+        let clear_right = if width > 220.0 {
+            rect.right() - 64.0
+        } else {
+            rect.right() - 4.0
+        };
         let clear_rect = Rect::from_center_size(
-            pos2(clear_right - (clear_size + theme::ICON_BUTTON_PAD) / 2.0, rect.center().y),
+            pos2(
+                clear_right - (clear_size + theme::ICON_BUTTON_PAD) / 2.0,
+                rect.center().y,
+            ),
             Vec2::splat(clear_size + theme::ICON_BUTTON_PAD),
         );
         let mut clear = ui.new_child(
