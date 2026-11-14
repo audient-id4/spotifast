@@ -462,7 +462,30 @@ pub fn actions_row(
                     palette.text,
                 )
             };
-            if theme::icon_button(ui, icon, 26.0, color, hover, tooltip).clicked() {
+            // Fork: Spotify's saved mark is a filled green disc with a
+            // black check.
+            let clicked = if *saved && icon == Icon::CircleCheck {
+                let (rect, response) = ui.allocate_exact_size(Vec2::splat(42.0), Sense::click());
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip.as_ref())
+                });
+                theme::focus_ring(ui, &response);
+                let fill = if response.hovered() {
+                    palette.accent_hover
+                } else {
+                    palette.accent
+                };
+                let grow = if response.hovered() { 1.04 } else { 1.0 };
+                ui.painter().circle_filled(rect.center(), 13.0 * grow, fill);
+                Icon::Check.image(palette.on_accent, 16.0).paint_at(
+                    ui,
+                    Rect::from_center_size(rect.center(), Vec2::splat(16.0)),
+                );
+                response.on_hover_text(tooltip.as_ref()).clicked()
+            } else {
+                theme::icon_button(ui, icon, 26.0, color, hover, tooltip).clicked()
+            };
+            if clicked {
                 app.actions.push(Action::ToggleSaved(uri.clone()));
             }
         }

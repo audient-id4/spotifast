@@ -121,18 +121,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(14.0);
 
     // The song and its save mark.
-    ui.horizontal(|ui| {
-        let title_width = ui.available_width() - 36.0;
-        ui.allocate_ui(vec2(title_width, 30.0), |ui| {
-            ui.add(
-                egui::Label::new(
-                    egui::RichText::new(&now.title)
-                        .font(theme::bold(22.0))
-                        .color(palette.text),
-                )
-                .truncate(),
-            );
-        });
+    // Fork: Spotify's 24px title with the mark at the panel's right edge.
+    let width = ui.available_width();
+    let row = ui.allocate_ui_with_layout(
+        vec2(width, 32.0),
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
         if !now.is_episode {
             let saved = app.is_saved(&now.uri).unwrap_or(false);
             let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
@@ -158,7 +152,19 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 app.actions.push(Action::ToggleSaved(now.uri.clone()));
             }
         }
-    });
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&now.title)
+                        .font(theme::bold(24.0))
+                        .color(palette.text),
+                )
+                .truncate(),
+            );
+        });
+        },
+    );
+    let _ = row;
     // The artists, each a link.
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -166,7 +172,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             if index > 0 {
                 theme::text(ui, ", ", theme::regular(14.0), palette.secondary);
             }
-            if theme::link(ui, &artist.name, theme::regular(14.0), palette.secondary).clicked()
+            if theme::link(ui, &artist.name, theme::regular(16.0), palette.secondary).clicked()
                 && let Some(id) = &artist.id
             {
                 app.actions.push(Action::Open(Page::Artist(id.clone())));

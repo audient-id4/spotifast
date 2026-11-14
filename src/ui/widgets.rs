@@ -1855,7 +1855,7 @@ fn track_row_contents(
         // color so selecting a song does not mark it as playing.
         ui.painter().rect_filled(
             rect,
-            CornerRadius::same(6),
+            CornerRadius::same(4),
             palette
                 .secondary
                 .gamma_multiply(if hovered { 0.30 } else { 0.20 }),
@@ -1863,7 +1863,7 @@ fn track_row_contents(
     } else if hovered {
         ui.painter().rect_filled(
             rect,
-            CornerRadius::same(6),
+            CornerRadius::same(4),
             palette
                 .surface_hover
                 .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
@@ -3828,7 +3828,7 @@ pub fn search_field(
         )
         .paint_at(ui, icon_rect);
     // Browse at the right end, after a thin divider, as Spotify has it.
-    if text.is_empty() && width > 220.0 {
+    if width > 220.0 {
         let browse =
             Rect::from_center_size(pos2(rect.right() - 28.0, rect.center().y), Vec2::splat(24.0));
         ui.painter().line_segment(
@@ -3844,7 +3844,7 @@ pub fn search_field(
     }
     let field_rect = Rect::from_min_max(
         pos2(rect.left() + 48.0, rect.top() + 1.0),
-        pos2(rect.right() - 64.0, rect.bottom() - 1.0),
+        pos2(rect.right() - if text.is_empty() { 64.0 } else { 104.0 }, rect.bottom() - 1.0),
     );
     let mut child = ui.new_child(
         UiBuilder::new()
@@ -3884,9 +3884,11 @@ pub fn search_field(
         // The box must fit what `theme::icon_button` allocates around the
         // glyph; a smaller child makes egui clamp its centered layout to
         // the child's top edge, dropping the glyph below the midline.
-        let clear_size = 15.0;
+        // Fork: Spotify's clear cross, 24, before the divider.
+        let clear_size = 20.0;
+        let clear_right = if width > 220.0 { rect.right() - 64.0 } else { rect.right() - 4.0 };
         let clear_rect = Rect::from_center_size(
-            pos2(rect.right() - 17.0, rect.center().y),
+            pos2(clear_right - (clear_size + theme::ICON_BUTTON_PAD) / 2.0, rect.center().y),
             Vec2::splat(clear_size + theme::ICON_BUTTON_PAD),
         );
         let mut clear = ui.new_child(
@@ -4972,7 +4974,8 @@ mod tests {
                         {
                             shape.stroke == Stroke::NONE
                                 && (shape.rect != rect
-                                    || shape.corner_radius == CornerRadius::same(6))
+                                    // Fork: Spotify's rows round by 4.
+                                    || shape.corner_radius == CornerRadius::same(4))
                         }
                         _ => true,
                     }),
