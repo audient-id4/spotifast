@@ -185,7 +185,16 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
             let block = 20.0 + title_height + if described { 24.0 } else { 0.0 } + 24.0 + 12.0;
             ui.add_space((cover_size - block).max(0.0));
             theme::text(ui, hero.kind.as_ref(), theme::regular(14.0), palette.text);
-            theme::text(ui, hero.title, theme::bold(size), palette.text);
+            // Fork: the title can be selected and copied.
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(hero.title)
+                        .font(theme::bold(size))
+                        .color(palette.text),
+                )
+                .wrap_mode(egui::TextWrapMode::Extend)
+                .selectable(true),
+            );
             if let Some(description) = &hero.description
                 && !description.is_empty()
             {
@@ -1351,6 +1360,8 @@ fn list_shortcuts(
         && app.picked_rows(&table.page).is_some()
         && !egui::Popup::is_any_open(ui.ctx());
     let queue_keys = !picked_songs.is_empty() && !egui::Popup::is_any_open(ui.ctx());
+    // Fork: Ctrl+Shift+C copies the picked songs as "Artist - Title" lines.
+    let copy_names = ui.input(|input| input.modifiers.shift);
     let (select_all, cut, copy, pasted, delete, queue, play_next) = ui.input_mut(|input| {
         // The platform's Cut, Copy and Paste keys arrive as these events,
         // not as key presses.
@@ -1436,6 +1447,22 @@ fn list_shortcuts(
             uris,
             positions: picked_positions,
         });
+    } else if copy && copy_names {
+        let lines: Vec<String> = picked_songs
+            .iter()
+            .map(|song| {
+                let by = song.subtitle();
+                if by.is_empty() {
+                    song.name().to_string()
+                } else {
+                    format!("{by} - {}", song.name())
+                }
+            })
+            .collect();
+        app.actions.push(Action::CopyText(lines.join(
+            "
+",
+        )));
     } else if copy {
         app.actions.push(Action::CopySongs(picked_songs));
     }

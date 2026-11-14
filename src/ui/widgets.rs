@@ -813,6 +813,8 @@ pub(crate) struct PlaylistChecks {
     /// The song the menu opened for.
     pub uri: String,
     pub liked: bool,
+    /// Whether the song was in Liked Songs when the menu opened.
+    was_liked: bool,
     /// The playlists known to hold the song when the menu opened.
     holding: std::collections::BTreeSet<String>,
     /// The playlists not read far enough to tell. Done never takes the song
@@ -848,7 +850,8 @@ impl PlaylistChecks {
         }
         Self {
             uri: item.uri().to_string(),
-            liked: true,
+            liked: app.is_saved(item.uri()).unwrap_or(false),
+            was_liked: app.is_saved(item.uri()).unwrap_or(false),
             chosen: holding.clone(),
             holding,
             unread,
@@ -1677,10 +1680,45 @@ fn plays_fit(width: f32) -> bool {
     width > 560.0
 }
 
+/// Fork: Spotify drops the Date added column on a narrow page instead of
+/// folding the date in beside the artists.
+const FOLD_ADDED_DATE: bool = false;
+
 /// Fork: Spotify's grid. After the number and the fixed right end, the
 /// title takes two parts and the album and the date one part each; without
 /// a date the album takes a third. Rows and the header share it.
+/// Fork: how far the listener has dragged the Album and Date added columns
+/// from Spotify's grid, as width factors (f32 bits). One pair for every list,
+/// as Spotify keeps it; the header keeps it in egui's saved memory.
+static ALBUM_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+static ADDED_SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3f80_0000);
+const COLUMN_SCALE_MIN: f32 = 0.4;
+const COLUMN_SCALE_MAX: f32 = 2.5;
+
+fn column_scale(scale: &std::sync::atomic::AtomicU32) -> f32 {
+    f32::from_bits(scale.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+fn set_column_scale(scale: &std::sync::atomic::AtomicU32, value: f32) {
+    let value = value.clamp(COLUMN_SCALE_MIN, COLUMN_SCALE_MAX);
+    scale.store(value.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
 fn flex_columns(width: f32, album: bool, added: bool, plays: f32) -> (f32, f32) {
+    let (album, added) = grid_columns(width, album, added, plays);
+    let mut album = album * column_scale(&ALBUM_SCALE);
+    let mut added = added * column_scale(&ADDED_SCALE);
+    // The title keeps at least 200 points: the dragged columns give way.
+    let room = (width - 44.0 - 136.0 - plays - 200.0).max(0.0);
+    if album + added > room && album + added > 0.0 {
+        let fit = room / (album + added);
+        album *= fit;
+        added *= fit;
+    }
+    (album, added)
+}
+
+fn grid_columns(width: f32, album: bool, added: bool, plays: f32) -> (f32, f32) {
     let medium = width > 560.0;
     let wide = width > 760.0;
     let flex = (width - 44.0 - 136.0 - plays).max(0.0);
@@ -2027,6 +2065,7 @@ fn track_row_contents(
                 );
                 if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                     && cols.added == 0.0
+                    && FOLD_ADDED_DATE
                 {
                     let now = jiff::Timestamp::now();
                     let label = util::format_relative_date(app.locale, added, now);
@@ -2067,6 +2106,7 @@ fn track_row_contents(
                 }
                 if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                     && cols.added == 0.0
+                    && FOLD_ADDED_DATE
                 {
                     theme::text(
                         &mut child,
@@ -2115,6 +2155,7 @@ fn track_row_contents(
                     );
                     if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                         && cols.added == 0.0
+                        && FOLD_ADDED_DATE
                     {
                         theme::text(
                             ui,
@@ -2146,6 +2187,7 @@ fn track_row_contents(
                     }
                     if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                         && cols.added == 0.0
+                        && FOLD_ADDED_DATE
                     {
                         theme::text(
                             ui,
@@ -2304,16 +2346,11 @@ fn track_row_contents(
                 gettext(app.locale, "Save to Liked Songs")
             };
             let response = theme::icon_button(&mut child, icon, size, color, hover, &tooltip);
-            // Fork: a saved song's check opens the playlist checklist, as
-            // Spotify's desktop does; a song not saved yet is saved at once.
+            // Fork: the mark always opens the checklist of Liked Songs and
+            // the playlists, saved or not, so a song goes straight into any
+            // of them.
             let popup_id = egui::Id::new(("row-liked-playlists", row.item.uri()));
-            if saved == Some(true) {
-                playlist_checklist(&mut child, app, &response, popup_id, row.item);
-            } else if response.clicked() {
-                forget_playlist_checklist(&mut child, popup_id);
-                app.actions
-                    .push(Action::ToggleSaved(row.item.uri().to_string()));
-            }
+            playlist_checklist(&mut child, app, &response, popup_id, row.item);
         }
         x += cols.heart;
     }
@@ -2756,6 +2793,72 @@ pub fn table_header(
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
     let mut cx =
         rect.right() - right_fixed - plays_width - added_width - added_by_width - album_width;
+    // Fork: Spotify's column dividers. They show while the pointer is over
+    // the header; dragging one moves the edge between two columns.
+    {
+        let scales_id = egui::Id::new("fork-column-scales");
+        if let Some((album, added)) =
+            ui.data_mut(|data| data.get_persisted::<(f32, f32)>(scales_id))
+            && !ui
+                .ctx()
+                .is_being_dragged(ui.id().with(("column-divider", "album")))
+            && !ui
+                .ctx()
+                .is_being_dragged(ui.id().with(("column-divider", "added")))
+        {
+            set_column_scale(&ALBUM_SCALE, album);
+            set_column_scale(&ADDED_SCALE, added);
+        }
+        let header_hovered = ui.rect_contains_pointer(rect);
+        let (base_album, base_added) = grid_columns(width, show_album, show_added, header_plays);
+        let mut divider = |ui: &mut Ui, x: f32, key: &str| -> f32 {
+            let strip = Rect::from_center_size(pos2(x - 8.0, rect.center().y), vec2(9.0, 24.0));
+            let response = ui
+                .interact(strip, ui.id().with(("column-divider", key)), Sense::drag())
+                .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+            if header_hovered || response.dragged() {
+                let line = if response.hovered() || response.dragged() {
+                    palette.text
+                } else {
+                    palette.dim
+                };
+                ui.painter().vline(
+                    strip.center().x,
+                    strip.y_range().shrink(2.0),
+                    egui::Stroke::new(1.0, line),
+                );
+            }
+            if response.dragged() {
+                response.drag_delta().x
+            } else {
+                0.0
+            }
+        };
+        let mut changed = false;
+        if album_width > 0.0 && base_album > 0.0 {
+            let dx = divider(ui, cx, "album");
+            if dx != 0.0 {
+                set_column_scale(&ALBUM_SCALE, (album_width - dx) / base_album);
+                changed = true;
+            }
+        }
+        if added_width > 0.0 && base_added > 0.0 {
+            let added_x = cx + album_width + added_by_width;
+            let dx = divider(ui, added_x, "added");
+            if dx != 0.0 {
+                if album_width > 0.0 && base_album > 0.0 {
+                    set_column_scale(&ALBUM_SCALE, (album_width + dx) / base_album);
+                }
+                set_column_scale(&ADDED_SCALE, (added_width - dx) / base_added);
+                changed = true;
+            }
+        }
+        if changed {
+            let scales = (column_scale(&ALBUM_SCALE), column_scale(&ADDED_SCALE));
+            ui.data_mut(|data| data.insert_persisted(scales_id, scales));
+            ui.ctx().request_repaint();
+        }
+    }
     if album_width > 0.0 {
         heading(
             ui,
@@ -3603,7 +3706,7 @@ pub(crate) fn playlist_checklist(
                 .inner
                 .clicked();
             if done {
-                if !checks.liked {
+                if checks.liked != checks.was_liked {
                     app.actions
                         .push(Action::ToggleSaved(item.uri().to_string()));
                 }
@@ -3637,6 +3740,9 @@ pub fn chip_row_with_arrows(
     fill: egui::Color32,
     add_contents: impl FnOnce(&mut Ui),
 ) {
+    // Fork: no fade behind the arrows. It was painted in the panel's colour
+    // and showed as a dark block over a tinted header.
+    let _ = fill;
     let target_id = id.with("arrow-target");
     let target = ui.data_mut(|data| data.remove_temp::<f32>(target_id));
     let row = ui
@@ -3665,6 +3771,7 @@ pub fn chip_row_with_arrows(
     let offset = row.state.offset.x;
     let max = (row.content_size.x - rect.width()).max(0.0);
     let step = (rect.width() * 0.7).max(80.0);
+    #[allow(dead_code)]
     fn fade(ui: &Ui, rect: Rect, fill: egui::Color32, left: bool) {
         let edge = if left {
             Rect::from_min_max(rect.min, pos2(rect.left() + CHIP_FADE * 2.0, rect.bottom()))
@@ -3711,14 +3818,12 @@ pub fn chip_row_with_arrows(
         response.clicked()
     }
     if offset > 0.5 {
-        fade(ui, rect, fill, true);
         if arrow(ui, rect, id, true) {
             ui.data_mut(|data| data.insert_temp(target_id, (offset - step).max(0.0)));
             ui.ctx().request_repaint();
         }
     }
     if max - offset > 0.5 {
-        fade(ui, rect, fill, false);
         if arrow(ui, rect, id, false) {
             ui.data_mut(|data| data.insert_temp(target_id, (offset + step).min(max)));
             ui.ctx().request_repaint();

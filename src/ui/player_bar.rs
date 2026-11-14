@@ -646,7 +646,8 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         // playlists, as Spotify does: checks change nothing until Done, and
         // a click outside drops them. The first click on a song not yet liked
         // still likes it at once (#792).
-        match song.as_ref().filter(|_| saved) {
+        // Fork: liked or not, the mark opens the checklist.
+        match song.as_ref() {
             None => {
                 super::widgets::forget_playlist_checklist(ui, popup_id);
                 if response.clicked() {

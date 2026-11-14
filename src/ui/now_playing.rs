@@ -125,67 +125,119 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
     // the artists close under it.
     ui.spacing_mut().item_spacing.y = 0.0;
     let width = ui.available_width();
-    let row = ui.allocate_ui_with_layout(
-        vec2(width, 30.0),
-        egui::Layout::right_to_left(egui::Align::Center),
+    // Fork: hovering anywhere over the title and artists shows Spotify's
+    // "Copy link to Song" button beside the save mark. The block's rect is
+    // last frame's, known once it has been laid out.
+    let block_id = ui.id().with("npv-title-block");
+    let block_top = ui.cursor().top();
+    let block_hovered = ui
+        .ctx()
+        .data(|data| data.get_temp::<Rect>(block_id))
+        .is_some_and(|rect| ui.rect_contains_pointer(rect));
+    // Fork: the text keeps clear of the marks, which sit at the panel's
+    // right edge centred on the title and artists together, as Spotify's.
+    const MARK: f32 = 28.0;
+    let marks_width = MARK * 2.0 + 4.0;
+    let left = ui.cursor().left();
+    let text = ui.allocate_ui_with_layout(
+        vec2(width - marks_width, 0.0),
+        egui::Layout::top_down(egui::Align::Min),
         |ui| {
-            if !now.is_episode {
-                let saved = app.is_saved(&now.uri).unwrap_or(false);
-                let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
-                if saved {
-                    ui.painter()
-                        .circle_filled(rect.center(), 10.0, palette.accent);
-                    theme::paint_icon(ui, Icon::Check, rect, 13.0, egui::Color32::from_gray(10));
-                } else {
-                    let tint = if response.hovered() {
-                        palette.text
-                    } else {
-                        palette.secondary
-                    };
-                    theme::paint_icon(ui, Icon::CirclePlus, rect, 20.0, tint);
+            ui.set_width(width - marks_width);
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(&now.title)
+                        .font(theme::bold(24.0))
+                        .color(palette.text),
+                )
+                .truncate()
+                .selectable(true),
+            );
+            ui.add_space(2.0);
+            // The artists, each a link.
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                for (index, artist) in now.artists.iter().enumerate() {
+                    if index > 0 {
+                        theme::text(ui, ", ", theme::regular(16.0), palette.secondary);
+                    }
+                    if theme::link(ui, &artist.name, theme::regular(16.0), palette.secondary)
+                        .clicked()
+                        && let Some(id) = &artist.id
+                    {
+                        app.actions.push(Action::Open(Page::Artist(id.clone())));
+                    }
                 }
-                if response
-                    .on_hover_text(if saved {
-                        gettext(locale, "Remove from Liked Songs")
-                    } else {
-                        gettext(locale, "Save to Liked Songs")
-                    })
-                    .clicked()
-                {
-                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                if now.artists.is_empty() && !now.subtitle.is_empty() {
+                    theme::text(ui, &now.subtitle, theme::regular(16.0), palette.secondary);
                 }
-            }
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(&now.title)
-                            .font(theme::bold(24.0))
-                            .color(palette.text),
-                    )
-                    .truncate(),
-                );
             });
         },
     );
-    let _ = row;
-    ui.add_space(2.0);
-    // The artists, each a link.
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        for (index, artist) in now.artists.iter().enumerate() {
-            if index > 0 {
-                theme::text(ui, ", ", theme::regular(14.0), palette.secondary);
-            }
-            if theme::link(ui, &artist.name, theme::regular(16.0), palette.secondary).clicked()
-                && let Some(id) = &artist.id
-            {
-                app.actions.push(Action::Open(Page::Artist(id.clone())));
+    let centre_y = text.response.rect.center().y;
+    let right = left + width;
+    let save_rect = Rect::from_center_size(pos2(right - MARK / 2.0, centre_y), vec2(MARK, MARK));
+    if !now.is_episode {
+        let saved = app.is_saved(&now.uri).unwrap_or(false);
+        let response = ui.interact(save_rect, block_id.with("save"), Sense::click());
+        if saved {
+            let disc = if response.hovered() {
+                palette.accent_hover
+            } else {
+                palette.accent
+            };
+            ui.painter().circle_filled(save_rect.center(), 10.0, disc);
+            theme::paint_icon(
+                ui,
+                Icon::Check,
+                save_rect,
+                13.0,
+                egui::Color32::from_gray(10),
+            );
+        } else {
+            let tint = if response.hovered() {
+                palette.text
+            } else {
+                palette.secondary
+            };
+            theme::paint_icon(ui, Icon::CirclePlus, save_rect, 20.0, tint);
+        }
+        let response = response.on_hover_text(gettext(locale, "Add to playlist"));
+        // Fork: liked or not, the mark opens the checklist of Liked Songs
+        // and the playlists.
+        let popup_id = egui::Id::new("npv-liked-playlists");
+        match app.now_playing_item() {
+            Some(item) => widgets::playlist_checklist(ui, app, &response, popup_id, &item),
+            None => {
+                if response.clicked() {
+                    app.actions.push(Action::ToggleSaved(now.uri.clone()));
+                }
             }
         }
-        if now.artists.is_empty() && !now.subtitle.is_empty() {
-            theme::text(ui, &now.subtitle, theme::regular(16.0), palette.secondary);
+    }
+    if block_hovered && !now.uri.is_empty() {
+        let share_rect = save_rect.translate(vec2(-(MARK + 4.0), 0.0));
+        let response = ui.interact(share_rect, block_id.with("share"), Sense::click());
+        let tint = if response.hovered() {
+            palette.text
+        } else {
+            palette.secondary
+        };
+        theme::paint_icon(ui, Icon::Share, share_rect, 18.0, tint);
+        let label = if now.is_episode {
+            gettext(locale, "Copy link to Episode")
+        } else {
+            gettext(locale, "Copy link to Song")
+        };
+        if response.on_hover_text(label).clicked() {
+            app.actions.push(Action::CopyLink(now.uri.clone()));
         }
-    });
+    }
+    let block = Rect::from_min_max(
+        egui::pos2(ui.min_rect().left(), block_top),
+        egui::pos2(ui.min_rect().left() + width, ui.cursor().top()),
+    );
+    ui.ctx().data_mut(|data| data.insert_temp(block_id, block));
     ui.spacing_mut().item_spacing.y = 6.0;
     ui.add_space(18.0);
 

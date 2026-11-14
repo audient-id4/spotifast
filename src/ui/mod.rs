@@ -373,17 +373,11 @@ fn page_tint(app: &mut App) -> Option<Color32> {
             .and_then(|show| pick_image(&show.images, 64))
             .map(str::to_string),
         Page::Radio(seed) => pick_image(&app.radio_images(seed), 64).map(str::to_string),
-        Page::LikedSongs => {
-            return app
-                .settings
-                .accent_from_art
-                .then_some(Color32::from_rgb(0x50, 0x38, 0xc8));
-        }
+        // Fork: Spotify always washes a cover page's header in the cover's
+        // colour; "Colour from album art" keeps governing the accent only.
+        Page::LikedSongs => return Some(Color32::from_rgb(0x50, 0x38, 0xa0)),
         _ => None,
     };
-    if !app.settings.accent_from_art && image.is_some() {
-        return None;
-    }
     match image {
         Some(url) => app.tint_for(Some(&url)).or_else(|| app.now_playing_tint()),
         None => app.now_playing_tint(),

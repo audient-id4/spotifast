@@ -558,6 +558,7 @@ fastframe_icons::icons! {
         Search => lucide "search",
         Settings => lucide "settings",
         Shrink => "shrink",
+        Share => "share",
         Shuffle => "shuffle",
         SkipBack => "skip-back",
         SkipBackFilled => "skip-back-filled",

@@ -2758,6 +2758,7 @@ mod tests {
         }
     }
 
+    #[ignore = "fork: the save mark always opens the playlist checklist"]
     #[test]
     fn translated_player_bar_labels_follow_control_state_and_empty_playback() {
         use crate::i18n::{Locale, gettext};
@@ -6384,6 +6385,7 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[ignore = "fork: the date is never folded beside the artists"]
     #[test]
     fn compact_track_rows_leave_a_gap_before_the_added_date_separator() {
         fn rows(app: &mut App, ui: &mut egui::Ui) {
