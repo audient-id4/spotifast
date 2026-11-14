@@ -617,6 +617,8 @@ pub struct App {
     /// Fork: songs whose lookup failed, and when. A song that keeps failing
     /// is not asked for again on every frame, which used up the quota.
     track_failures: HashMap<String, Instant>,
+    /// Saved-state checks that failed, so visible rows don't re-ask every frame.
+    contains_failures: HashMap<String, Instant>,
     /// Album URIs already resolved or attempted through librespot this session.
     album_types_requested: HashSet<String>,
     /// Saved shows Spotify marks as audiobooks, which librespot cannot play;
@@ -1384,6 +1386,7 @@ impl App {
             track_cache: HashMap::new(),
             track_requests: HashSet::new(),
             track_failures: HashMap::new(),
+            contains_failures: HashMap::new(),
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
             audiobooks_requested: HashSet::new(),
@@ -8044,6 +8047,10 @@ impl App {
                 || self.saved.contains_key(&uri)
                 || self.saved_pending.contains(&uri)
                 || uri.starts_with("spotify:local")
+                || self
+                    .contains_failures
+                    .get(&uri)
+                    .is_some_and(|at| at.elapsed() < Duration::from_secs(600))
             {
                 continue;
             }
@@ -9535,6 +9542,9 @@ impl App {
             ApiResponse::Contains { uris, result } => {
                 for uri in &uris {
                     self.saved_pending.remove(uri);
+                    if result.is_err() {
+                        self.contains_failures.insert(uri.clone(), Instant::now());
+                    }
                 }
                 if let Ok(flags) = result {
                     for (uri, flag) in uris.into_iter().zip(flags) {
@@ -36344,6 +36354,24 @@ mod tests {
         });
         assert!(!app.claim_track_request("gone"));
         assert!(app.claim_track_request("other"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn a_failed_saved_check_waits_before_it_is_asked_again() {
+        let mut app = test_app("failed-saved-check");
+        app.request_contains(vec!["spotify:track:a".into()]);
+        assert!(app.saved_pending.contains("spotify:track:a"));
+        app.handle_api(ApiResponse::Contains {
+            uris: vec!["spotify:track:a".into()],
+            result: Err(crate::api::client::ApiError::Status {
+                status: 429,
+                message: "quota".into(),
+            }),
+        });
+        app.request_contains(vec!["spotify:track:a".into(), "spotify:track:b".into()]);
+        assert!(!app.saved_pending.contains("spotify:track:a"));
+        assert!(app.saved_pending.contains("spotify:track:b"));
         app.backend.shutdown();
     }
 
