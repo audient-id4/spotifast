@@ -9100,7 +9100,15 @@ impl App {
             ApiResponse::PlaylistCreated(result) => {
                 self.playlist_busy = false;
                 match result {
-                    Ok(playlist) => {
+                    Ok(mut playlist) => {
+                        // Fork: Spotify's answer can leave the owner's name
+                        // out; a new playlist is the listener's own.
+                        if playlist.owner.display_name.is_none()
+                            && let Some(user) = &self.user
+                            && playlist.owner.id.as_deref().is_none_or(|id| id == user.id)
+                        {
+                            playlist.owner.display_name = user.display_name.clone();
+                        }
                         self.toast(
                             // Translators: {name} is a playlist name.
                             gettext(self.locale, "Created {name}")

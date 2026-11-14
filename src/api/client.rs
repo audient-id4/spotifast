@@ -49,13 +49,19 @@ pub fn set_quota_file(path: std::path::PathBuf) {
 
 /// The pause after the `strikes`-th quota report in a row.
 fn quota_pause(strikes: u32, retry_after: Option<Duration>) -> Duration {
-    let doubled = QUOTA_PAUSE.saturating_mul(1 << strikes.saturating_sub(1).min(5));
-    doubled.min(QUOTA_PAUSE_MAX).max(
-        retry_after
-            .unwrap_or_default()
-            .min(Duration::from_secs(24 * 60 * 60)),
-    )
+    // Spotify's own Retry-After is the reset, short or long; the doubling
+    // pause is only for a report without one.
+    if let Some(retry_after) = retry_after.filter(|wait| !wait.is_zero()) {
+        return retry_after.min(Duration::from_secs(24 * 60 * 60));
+    }
+    QUOTA_PAUSE
+        .saturating_mul(1 << strikes.saturating_sub(1).min(5))
+        .min(QUOTA_PAUSE_MAX)
 }
+
+/// Fork: the longest a write, always the listener's own action, waits for
+/// its endpoint's quota to come back before it gives up.
+const QUOTA_WRITE_WAIT: Duration = Duration::from_secs(5 * 60);
 
 /// Fork: the endpoint a path belongs to, with IDs folded, so
 /// `/tracks/abc` and `/tracks/def` count and pause together.
@@ -131,9 +137,15 @@ impl QuotaPauses {
 
     /// Whether `key` is still paused at `now` (unix seconds).
     fn blocked(&self, key: &str, now: u64) -> bool {
+        self.remaining(key, now).is_some()
+    }
+
+    /// How long `key` stays paused after `now`, if it is.
+    fn remaining(&self, key: &str, now: u64) -> Option<Duration> {
         self.by_endpoint
             .get(key)
-            .is_some_and(|(until, _)| *until > now)
+            .filter(|(until, _)| *until > now)
+            .map(|(until, _)| Duration::from_secs(until - now))
     }
 
     /// Records a quota report for `key`; returns the pause and the strikes.
@@ -723,13 +735,20 @@ impl ApiClient {
     async fn wait_for_budget(&self, endpoint: &str, read: bool) -> Result<()> {
         let started = Instant::now();
         loop {
-            if self
+            let paused = self
                 .quota
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
-                .blocked(endpoint, unix_now())
-            {
-                return Err(ApiError::QuotaExhausted);
+                .remaining(endpoint, unix_now());
+            if let Some(left) = paused {
+                // A write waits out a short pause rather than fail the
+                // listener's action half done.
+                if read || left > QUOTA_WRITE_WAIT {
+                    return Err(ApiError::QuotaExhausted);
+                }
+                log::info!("Web API write to {endpoint} waits {left:?} for its quota");
+                tokio::time::sleep(left).await;
+                continue;
             }
             if !read {
                 return Ok(());
@@ -851,6 +870,22 @@ impl ApiClient {
                 let text = response.text().await.unwrap_or_default();
                 if is_quota_exhausted(&text) {
                     let retry_after = response_retry_after;
+                    // Fork: a write is the listener's own action, often one
+                    // step of several (a new playlist, then its songs). A
+                    // short Retry-After is waited out and the write sent
+                    // again, so the playlist is not left empty.
+                    if method != Method::GET
+                        && attempt <= RATE_LIMIT_RETRIES
+                        && let Some(wait) =
+                            retry_after.filter(|wait| *wait <= QUOTA_WRITE_WAIT)
+                    {
+                        log::warn!(
+                            "Spotify's quota for {endpoint} is used up for {wait:?}; the write waits and is sent again"
+                        );
+                        drop(permit);
+                        tokio::time::sleep(wait + Duration::from_secs(1)).await;
+                        continue;
+                    }
                     let (pause, strikes) = self
                         .quota
                         .lock()
@@ -1593,7 +1628,10 @@ mod tests {
         assert_eq!(quota_pause(5, None), min(120));
         assert_eq!(quota_pause(40, None), min(120));
         assert_eq!(quota_pause(1, Some(min(300))), min(300));
-        assert_eq!(quota_pause(1, Some(Duration::from_secs(3))), min(10));
+        assert_eq!(
+            quota_pause(1, Some(Duration::from_secs(235))),
+            Duration::from_secs(235)
+        );
     }
 
     #[test]
