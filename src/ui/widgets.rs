@@ -1915,8 +1915,9 @@ fn track_row_contents(
     // when a mouse click gives the row focus for arrow-key navigation.
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
-    // Fork: side panel covers line up with the headings, as Spotify's queue.
-    let mut x = rect.left() + if row.compact { 0.0 } else { 8.0 };
+    // Fork: the cover sits 8 inside the row's hover highlight, as Spotify's
+    // search and queue rows.
+    let mut x = rect.left() + 8.0;
 
     // Number / play.
     if cols.number > 0.0 {
