@@ -155,7 +155,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             );
             // Fork: Figtree's line box leaves room under the 24px title;
             // Spotify sets the artists right under it.
-            ui.add_space(-6.0);
+            ui.add_space(-2.0);
             // The artists, each a link.
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
