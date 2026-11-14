@@ -1699,6 +1699,19 @@ fn next_sort(sort: Option<TableSort>, column: SortColumn) -> Option<TableSort> {
 /// The indices of `items` as a view presents them: filtered by `needle`
 /// (already lowercased), then ordered by `sort`. Sorting by plays reads
 /// `play_counts`; a song without a count sorts after every counted one.
+/// Fork: every word of the filter appears somewhere in the song's title,
+/// artists or album, in any order: "future metro" finds Future and Metro
+/// Boomin's songs. Commas and other punctuation only separate words.
+fn filter_matches(haystack: &str, needle: &str) -> bool {
+    let haystack = haystack.to_lowercase();
+    needle
+        .split(|c: char| {
+            c.is_whitespace() || (c.is_ascii_punctuation() && !matches!(c, '\'' | '&'))
+        })
+        .filter(|word| !word.is_empty())
+        .all(|word| haystack.contains(&word.to_lowercase()))
+}
+
 fn view_indices(
     items: &[TableItem],
     play_counts: &HashMap<String, u64>,
@@ -1728,7 +1741,7 @@ fn view_indices(
                 ),
                 PlayableItem::Episode(episode) => episode.name.clone(),
             };
-            haystack.to_lowercase().contains(needle)
+            filter_matches(&haystack, needle)
         })
         .map(|(index, _)| index)
         .collect();
@@ -3304,6 +3317,17 @@ fn palette_of(app: &App) -> Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_filter_finds_every_word_in_any_order() {
+        let song = "Young Metro Future, Metro Boomin, The Weeknd WE DON'T TRUST YOU";
+        assert!(filter_matches(song, "future metro"));
+        assert!(filter_matches(song, "future, metro"));
+        assert!(filter_matches(song, "metro   future"));
+        assert!(filter_matches(song, "don't trust"));
+        assert!(!filter_matches(song, "future drake"));
+        assert!(filter_matches(song, "  "));
+    }
     use crate::api::models::{Album, ArtistRef, Image, Track};
     use crate::model::PlaylistPage;
 

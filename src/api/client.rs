@@ -876,8 +876,7 @@ impl ApiClient {
                     // again, so the playlist is not left empty.
                     if method != Method::GET
                         && attempt <= RATE_LIMIT_RETRIES
-                        && let Some(wait) =
-                            retry_after.filter(|wait| *wait <= QUOTA_WRITE_WAIT)
+                        && let Some(wait) = retry_after.filter(|wait| *wait <= QUOTA_WRITE_WAIT)
                     {
                         log::warn!(
                             "Spotify's quota for {endpoint} is used up for {wait:?}; the write waits and is sent again"
