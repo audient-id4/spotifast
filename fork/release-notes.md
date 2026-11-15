@@ -15,7 +15,9 @@ Unofficial fork of [Spotifast](https://github.com/crmne/spotifast) with a Spotif
 ## Before you sign in
 
 - Playback needs **Spotify Premium**.
-- You need your own Client ID from the [Spotify developer dashboard](https://developer.spotify.com/dashboard). Set it up as the README describes ("Sign in"). It takes about two minutes.
+- You need your own Client ID from the [Spotify developer dashboard](https://developer.spotify.com/dashboard). The sign-in screen lists the steps; it takes about two minutes.
+- On your app's **User Management** tab, add the email of the Spotify account you sign in with, yourself included. Without it, Spotify refuses the sign-in after you approve it in the browser.
+- Spotify's Development Mode quota is shared by every app on your developer account, so a second Client ID does not get more of it. When an endpoint runs out, Spotifast pauses only that endpoint until Spotify's reset and keeps the rest working.
 
 The built-in updater is off in this fork, because it would replace the fork with upstream Spotifast. To update, download new releases from this page.
 

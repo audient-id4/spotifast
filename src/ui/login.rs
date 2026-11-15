@@ -175,7 +175,7 @@ fn problem_text(locale: crate::i18n::Locale, problem: SignInProblem) -> String {
         ),
         SignInProblem::AccountNotAllowed => gettext(
             locale,
-            "Spotify didn't let this account use this Client ID. Sign in with the Spotify account that registered it, which needs Premium.",
+            "Spotify refused this account. Add its email under User Management in the developer dashboard, then sign in again.",
         ),
         SignInProblem::SharedRetired => gettext(
             locale,
@@ -509,7 +509,12 @@ fn setup_steps(app: &mut App, ui: &mut egui::Ui, width: f32) {
         ui,
         &palette,
         4,
-        &gettext(locale, "Tick Web API, accept the terms, and save."),
+        // Fork: Development Mode lets in only the accounts listed under User
+        // Management, the app's owner included.
+        &gettext(
+            locale,
+            "Tick Web API and save. Under User Management, add your Spotify email.",
+        ),
         |_| {},
     );
     step(
