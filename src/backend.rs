@@ -3285,6 +3285,9 @@ impl Worker {
             ApiSource::Shared => format!("Shared Spotify sign-in failed: {error}"),
             ApiSource::Personal => format!("Client ID authorization failed: {error}"),
         };
+        // Fork: Spotify's own words for the refusal, which the sign-in screen
+        // replaces with its advice.
+        log::warn!("{message} (status {:?})", error.status());
         let other_ready = match source {
             ApiSource::Shared => self.api.personal_ready(),
             ApiSource::Personal => matches!(
