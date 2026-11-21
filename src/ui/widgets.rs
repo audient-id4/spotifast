@@ -858,6 +858,29 @@ impl PlaylistChecks {
         }
     }
 
+    /// Fork: takes in what the background reads have found since the menu
+    /// opened, and asks about each playlist still unread.
+    pub(crate) fn learn(&mut self, app: &mut App) {
+        let unread: Vec<String> = self.unread.iter().cloned().collect();
+        for id in unread {
+            match app
+                .playlist_holds
+                .get(&(id.clone(), self.uri.clone()))
+                .copied()
+            {
+                Some(Some(holds)) => {
+                    self.unread.remove(&id);
+                    if holds {
+                        self.holding.insert(id.clone());
+                        self.chosen.insert(id);
+                    }
+                }
+                Some(None) => {}
+                None => app.ask_playlist_holds(&id, &self.uri.clone()),
+            }
+        }
+    }
+
     pub(crate) fn mark(&self, id: &str) -> Mark {
         if self.chosen.contains(id) {
             Mark::Checked
@@ -1148,9 +1171,22 @@ fn picker_row(
                         .circle_stroke(center, 8.5, Stroke::new(1.5, palette.secondary));
                 }
                 Mark::Unknown => {
+                    // Fork: still being read; a turning arc says so.
                     let faint = palette.secondary.gamma_multiply(0.4);
                     ui.painter()
                         .circle_stroke(center, 8.5, Stroke::new(1.5, faint));
+                    let t = ui.input(|input| input.time) as f32 * 6.0;
+                    let points: Vec<egui::Pos2> = (0..=12)
+                        .map(|step| {
+                            let angle = t + step as f32 * 0.13;
+                            center + 8.5 * vec2(angle.cos(), angle.sin())
+                        })
+                        .collect();
+                    ui.painter().add(egui::Shape::line(
+                        points,
+                        Stroke::new(1.5, palette.secondary),
+                    ));
+                    ui.ctx().request_repaint();
                 }
             }
         }
@@ -3688,6 +3724,7 @@ pub(crate) fn playlist_checklist(
                 .data(|data| data.get_temp::<PlaylistChecks>(checks_id))
                 .filter(|checks| checks.uri == item.uri())
                 .unwrap_or_else(|| PlaylistChecks::new(app, item));
+            checks.learn(app);
             let before = app.actions.len();
             let field = playlist_picker(
                 ui,

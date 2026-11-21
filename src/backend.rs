@@ -250,6 +250,11 @@ pub enum ApiRequest {
         items: Vec<PlayableItem>,
         position: Option<u32>,
     },
+    /// Fork: whether a playlist holds a song, for the save checklist's mark.
+    PlaylistHolds {
+        playlist_id: String,
+        uri: String,
+    },
     AddToPlaylist {
         playlist_id: String,
         playlist_name: String,
@@ -511,6 +516,11 @@ pub enum ApiResponse {
         items: Vec<PlayableItem>,
         position: Option<u32>,
         result: ApiResult<Vec<String>>,
+    },
+    PlaylistHoldsChecked {
+        playlist_id: String,
+        uri: String,
+        result: ApiResult<bool>,
     },
     PlaylistItemsChanged {
         id: String,
@@ -5232,6 +5242,9 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::PlaylistSample { id, .. }
         | ApiRequest::CheckPlaylistDuplicates {
             playlist_id: id, ..
+        }
+        | ApiRequest::PlaylistHolds {
+            playlist_id: id, ..
         } => Operation::PlaylistItems(api.playlist_access(id)),
         ApiRequest::UploadPlaylistCover { id, .. }
         | ApiRequest::UpdatePlaylist { id, .. }
@@ -5859,6 +5872,15 @@ async fn handle(
                 playlist_name,
                 items,
                 position,
+            }
+        }
+        ApiRequest::PlaylistHolds { playlist_id, uri } => {
+            let wanted = [uri.clone()];
+            ApiResponse::PlaylistHoldsChecked {
+                result: routed!(playlist_duplicates(&playlist_id, &wanted))
+                    .map(|found| !found.is_empty()),
+                playlist_id,
+                uri,
             }
         }
         ApiRequest::AddToPlaylist {

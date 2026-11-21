@@ -1208,14 +1208,13 @@ impl ApiClient {
     /// Spotify has no membership endpoint for playlists, so walk its pages
     /// until every requested URI has been found or the playlist ends.
     pub async fn playlist_duplicates(&self, id: &str, uris: &[String]) -> Result<Vec<String>> {
+        use futures_util::StreamExt;
         let wanted: HashSet<&str> = uris.iter().map(String::as_str).collect();
         if wanted.is_empty() {
             return Ok(Vec::new());
         }
         let mut found = HashSet::new();
-        let mut offset = 0;
-        loop {
-            let page = self.playlist_items(id, offset, 50).await?;
+        let mut take = |page: &Page<PlaylistItem>, found: &mut HashSet<String>| {
             for uri in page
                 .items
                 .iter()
@@ -1226,13 +1225,26 @@ impl ApiClient {
                     found.insert(uri.to_string());
                 }
             }
-            if found.len() == wanted.len() {
-                break;
+        };
+        let first = self.playlist_items(id, 0, 50).await?;
+        take(&first, &mut found);
+        // Fork: the first page tells how many there are; the rest are read
+        // six at a time instead of one after another, and the read stops as
+        // soon as every song is found. A 2,000-song playlist took 20 seconds.
+        if found.len() < wanted.len()
+            && let Some(start) = first.next_offset()
+        {
+            let step = first.limit.max(first.items.len() as u32).max(1);
+            let offsets: Vec<u32> = (start..first.total).step_by(step as usize).collect();
+            let mut pages = futures_util::stream::iter(offsets)
+                .map(|offset| self.playlist_items(id, offset, 50))
+                .buffer_unordered(6);
+            while let Some(page) = pages.next().await {
+                take(&page?, &mut found);
+                if found.len() == wanted.len() {
+                    break;
+                }
             }
-            let Some(next) = page.next_offset() else {
-                break;
-            };
-            offset = next;
         }
         Ok(uris
             .iter()

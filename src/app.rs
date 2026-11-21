@@ -619,6 +619,9 @@ pub struct App {
     /// Fork: songs whose lookup failed, and when. A song that keeps failing
     /// is not asked for again on every frame, which used up the quota.
     track_failures: HashMap<String, Instant>,
+    /// Fork: whether a playlist holds a song, by (playlist, song); None while
+    /// the answer is on its way. The save checklist reads it.
+    pub(crate) playlist_holds: HashMap<(String, String), Option<bool>>,
     /// Saved-state checks that failed, so visible rows don't re-ask every frame.
     contains_failures: HashMap<String, Instant>,
     /// Album URIs already resolved or attempted through librespot this session.
@@ -1388,6 +1391,7 @@ impl App {
             track_cache: HashMap::new(),
             track_requests: HashSet::new(),
             track_failures: HashMap::new(),
+            playlist_holds: HashMap::new(),
             contains_failures: HashMap::new(),
             album_types_requested: HashSet::new(),
             audiobook_shows: HashSet::new(),
@@ -9216,6 +9220,19 @@ impl App {
                     }
                 }
             }
+            ApiResponse::PlaylistHoldsChecked {
+                playlist_id,
+                uri,
+                result,
+            } => match result {
+                Ok(holds) => {
+                    self.playlist_holds.insert((playlist_id, uri), Some(holds));
+                }
+                Err(error) => {
+                    log::debug!("could not tell whether a playlist holds a song: {error}");
+                    self.playlist_holds.remove(&(playlist_id, uri));
+                }
+            },
             ApiResponse::PlaylistDuplicatesChecked {
                 playlist_id,
                 playlist_name,
@@ -9249,6 +9266,9 @@ impl App {
                 result,
             } => {
                 self.playlist_busy = false;
+                // Fork: what the playlist holds has changed.
+                self.playlist_holds
+                    .retain(|(playlist, _), _| *playlist != id);
                 if let Some(page) = self.playlist_pages.get_mut(&id) {
                     page.pending_writes = page.pending_writes.saturating_sub(1);
                 }
@@ -12120,6 +12140,20 @@ impl App {
     /// Answer from the rows already held locally. A found duplicate is
     /// definitive even for a partial playlist; an empty answer is definitive
     /// only when the whole playlist is present.
+    /// Fork: asks once whether playlist `id` holds `uri`, for the save
+    /// checklist; the answer lands in `playlist_holds`.
+    pub(crate) fn ask_playlist_holds(&mut self, id: &str, uri: &str) {
+        let key = (id.to_string(), uri.to_string());
+        if self.playlist_holds.contains_key(&key) {
+            return;
+        }
+        self.playlist_holds.insert(key, None);
+        self.backend.api(ApiRequest::PlaylistHolds {
+            playlist_id: id.to_string(),
+            uri: uri.to_string(),
+        });
+    }
+
     pub(crate) fn local_playlist_duplicates(
         &self,
         id: &str,

@@ -2867,6 +2867,9 @@ pub fn liked(app: &mut App, ui: &mut egui::Ui) {
         tag_filter(app, ui, "liked", items, revision)
     };
     let (items, items_revision, by_tag) = (Arc::clone(&tags.items), tags.revision, tags.active);
+    // Fork: an artist chip narrows the list as tags do, so Play plays only
+    // the songs shown, shuffle or not, and Spotify's autoplay follows them.
+    let by_tag = by_tag || app.liked_tags.artist.is_some();
     let table_view = prepare_table_view(
         ui,
         app,
